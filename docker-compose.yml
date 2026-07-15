@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: loreline
+      POSTGRES_USER: loreline
+      POSTGRES_PASSWORD: loreline
+    ports:
+      - "5432:5432"
+    volumes:
+      - loreline_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loreline -d loreline"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7.4-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    ports:
+      - "6379:6379"
+    volumes:
+      - loreline_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      target: development
+    command: sh -c "npm run db:migrate && npm run dev -- --webpack --hostname 0.0.0.0"
+    environment:
+      WATCHPACK_POLLING: "true"
+      DATABASE_URL: postgresql://loreline:loreline@postgres:5432/loreline
+      REDIS_URL: redis://redis:6379
+      BETTER_AUTH_SECRET: local-docker-secret-change-before-production
+      BETTER_AUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-loreline-books}
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - loreline_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  loreline_postgres:
+  loreline_redis:
+  loreline_node_modules:
