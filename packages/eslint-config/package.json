@@ -1,0 +1,16 @@
+{
+  "name": "@loreline/eslint-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./base": "./base.mjs",
+    "./next": "./next.mjs"
+  },
+  "dependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "16.2.10",
+    "typescript-eslint": "^8.64.0"
+  }
+}

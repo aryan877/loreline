@@ -1,0 +1,42 @@
+{
+  "name": "@loreline/server",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3001",
+    "build": "next build && prepare-next-standalone",
+    "start": "PORT=3001 node .next/standalone/apps/server/server.js",
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1088.0",
+    "@aws-sdk/s3-request-presigner": "^3.1088.0",
+    "@loreline/contracts": "*",
+    "@loreline/database": "*",
+    "@next/env": "16.2.10",
+    "better-auth": "^1.6.23",
+    "drizzle-orm": "^0.45.2",
+    "effect": "^3.22.0",
+    "next": "16.2.10",
+    "openai": "^6.47.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "redis": "^6.1.0",
+    "server-only": "^0.0.1",
+    "unpdf": "^1.6.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@loreline/eslint-config": "*",
+    "@loreline/next-config": "*",
+    "@loreline/typescript-config": "*",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9.39.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

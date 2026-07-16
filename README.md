@@ -17,7 +17,7 @@
 
 ## Quick start
 
-### Native Next.js + Docker infrastructure
+### Native apps + Docker infrastructure
 
 ```bash
 npm install
@@ -26,7 +26,8 @@ npm run db:migrate
 npm run dev
 ```
 
-Open `http://localhost:3000`. Postgres runs on `5432`; Redis runs on `6379`.
+Open `http://localhost:3000`. Turborepo starts the web app on `3000` and the
+API server on `3001`; Postgres runs on `5432` and Redis on `6379`.
 
 ### Everything in Docker
 
@@ -34,7 +35,8 @@ Open `http://localhost:3000`. Postgres runs on `5432`; Redis runs on `6379`.
 npm run docker:dev
 ```
 
-The development container applies migrations and starts Next.js with hot reload. PDF bytes upload directly from the browser to private R2 objects.
+The development stack applies migrations and starts both apps with hot reload.
+PDF bytes upload directly from the browser to private R2 objects.
 
 ### Production-style stack
 
@@ -80,6 +82,7 @@ Copy `.env.example` to `.env`. The private `loreline-books` bucket uses a bucket
 | `BETTER_AUTH_SECRET`      | Production | Session signing; use 32+ cryptographically random bytes     |
 | `DATABASE_URL`            | Yes        | Postgres connection string                                  |
 | `REDIS_URL`               | Yes        | Distributed rate limits and Better Auth secondary storage   |
+| `SERVER_INTERNAL_URL`     | Yes        | Server app URL used by the web gateway                       |
 | `BETTER_AUTH_URL`         | Yes        | Canonical deployed origin                                   |
 | `NEXT_PUBLIC_APP_URL`     | Yes        | Browser-facing application origin                           |
 | `GOOGLE_CLIENT_ID/SECRET` | Optional   | Google sign-in                                              |
@@ -97,7 +100,8 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
 ```bash
 npm run typecheck        # TypeScript contracts
-npm test                 # Three focused mocked SDK/policy tests
+npm test -- --run        # Focused contract, policy, and SDK unit tests
+npm run test:e2e         # One rendered web/server smoke flow
 npm run lint             # Next.js + React lint rules
 npm run build            # Production Next.js build
 npm run db:generate      # Generate a migration after schema changes
@@ -123,22 +127,24 @@ Uploads use 10-minute, account-scoped signed URLs, accept PDF signatures only, a
 ## Architecture
 
 ```text
-Next.js App Router
-├── Landing, auth, library, PDF reader, sideboard
-├── TanStack Query server-state, mutations, and cursor pagination
-├── Shared Zod contracts + DTOs (browser ↔ API)
-├── Better Auth route + Redis secondary storage
-└── Effect-powered API programs
-    ├── Drizzle → Postgres + pgvector
-    ├── Storage service → Cloudflare R2 S3-compatible API
-    └── OpenAI service
-        ├── Responses API (grounded text)
-        ├── Agents SDK + Realtime API (voice)
-        ├── Embeddings (secondary RAG)
-        └── GPT Image 2 (visual board)
+apps/web (Next.js, port 3000)
+├── Landing, auth UI, library, PDF reader, sideboard
+├── TanStack Query server-state and mutations
+└── Same-origin /api gateway (2 MB cap; rejects PDF upload bodies)
+
+apps/server (Next.js API app, port 3001)
+├── Better Auth + Redis limits
+└── Effect services → Postgres, R2, and OpenAI
+
+packages/contracts   Browser-safe Zod contracts, domain types, and limits
+packages/database    Drizzle schema, client, migrations, and row types
+packages/*-config    Shared TypeScript, ESLint, and Next standalone tooling
 ```
 
-The shared data package lives under [`src/shared`](src/shared). It owns the Drizzle tables and client in [`src/shared/db`](src/shared/db), inferred row/insert models, and the Zod API schemas in [`src/shared/contracts`](src/shared/contracts). `drizzle-zod` derives book, chunk, message, conversation, and illustration contracts from those tables; API routes parse their output through the shared response schemas, while browser code imports the inferred DTO types. Runtime services live in [`src/server/services.ts`](src/server/services.ts); realtime tool orchestration lives in [`src/hooks/use-loreline-voice.ts`](src/hooks/use-loreline-voice.ts).
+The package graph is explicit in the workspace manifests. Browser-safe contracts
+live in [`packages/contracts`](packages/contracts), while Drizzle and migrations
+live in [`packages/database`](packages/database). The server app owns auth,
+transport handlers, and runtime services; the web app never imports server code.
 
 ## Current limitations
 

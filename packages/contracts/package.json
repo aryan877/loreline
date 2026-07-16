@@ -1,0 +1,28 @@
+{
+  "name": "@loreline/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./ai": "./src/ai.ts",
+    "./auth": "./src/auth.ts",
+    "./books": "./src/books.ts",
+    "./reader": "./src/reader.ts",
+    "./domain/reader": "./src/domain/reader.ts"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@loreline/eslint-config": "*",
+    "@loreline/typescript-config": "*",
+    "eslint": "^9.39.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

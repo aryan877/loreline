@@ -14,6 +14,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
   redis:
     image: redis:7.4-alpine
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
@@ -26,14 +27,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-  web:
+
+  server:
     profiles: ["app"]
     build:
       context: .
       target: development
-    command: sh -c "npm run db:migrate && npm run dev -- --webpack --hostname 0.0.0.0"
+    command: sh -c "npm run db:migrate && npm run dev --workspace=@loreline/server -- --hostname 0.0.0.0"
     environment:
-      WATCHPACK_POLLING: "true"
       DATABASE_URL: postgresql://loreline:loreline@postgres:5432/loreline
       REDIS_URL: redis://redis:6379
       BETTER_AUTH_SECRET: local-docker-secret-change-before-production
@@ -45,7 +46,7 @@ services:
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
       R2_BUCKET_NAME: ${R2_BUCKET_NAME:-loreline-books}
     ports:
-      - "3000:3000"
+      - "3001:3001"
     volumes:
       - .:/app
       - loreline_node_modules:/app/node_modules
@@ -53,6 +54,28 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3001/api/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      target: development
+    command: npm run dev --workspace=@loreline/web -- --hostname 0.0.0.0
+    environment:
+      SERVER_INTERNAL_URL: http://server:3001
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - loreline_node_modules:/app/node_modules
+    depends_on:
+      server:
         condition: service_healthy
 
 volumes:

@@ -1,8 +1,12 @@
 .git
-.next
-node_modules
 .data
 .env
 .env.*
 !.env.example
+**/.next
+**/.turbo
+**/coverage
+**/node_modules
+**/test-results
+**/*.tsbuildinfo
 npm-debug.log*

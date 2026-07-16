@@ -1,0 +1,9 @@
+{
+  "name": "@loreline/next-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "prepare-next-standalone": "./prepare-standalone.mjs"
+  }
+}
