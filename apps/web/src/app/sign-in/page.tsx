@@ -22,6 +22,37 @@ function authErrorMessage(mode: "signin" | "signup", message?: string) {
     : "We couldn’t create your account. Please try again.";
 }
 
+function GoogleIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4"
+      data-icon="inline-start"
+      viewBox="0 0 24 24"
+    >
+      <path
+        fill="currentColor"
+        d="M21.35 12.18c0-.72-.06-1.41-.19-2.07H12v3.92h5.24a4.48 4.48 0 0 1-1.94 2.94v2.54h3.15c1.85-1.7 2.9-4.21 2.9-7.33Z"
+      />
+      <path
+        fill="currentColor"
+        d="M12 21.68c2.62 0 4.82-.87 6.43-2.37l-3.15-2.54c-.87.58-1.99.92-3.28.92-2.53 0-4.67-1.71-5.44-4.01H3.3v2.62A9.72 9.72 0 0 0 12 21.68Z"
+        opacity=".75"
+      />
+      <path
+        fill="currentColor"
+        d="M6.56 13.68A5.85 5.85 0 0 1 6.25 12c0-.58.1-1.14.31-1.68V7.7H3.3A9.72 9.72 0 0 0 2.28 12c0 1.56.37 3.04 1.02 4.3l3.26-2.62Z"
+        opacity=".5"
+      />
+      <path
+        fill="currentColor"
+        d="M12 6.31c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.81 3.37 14.62 2.32 12 2.32A9.72 9.72 0 0 0 3.3 7.7l3.26 2.62c.77-2.3 2.91-4.01 5.44-4.01Z"
+        opacity=".9"
+      />
+    </svg>
+  );
+}
+
 function AuthForm() {
   const router = useRouter();
   const search = useSearchParams();
@@ -49,6 +80,21 @@ function AuthForm() {
       return result;
     },
     onSuccess: () => router.push(search.get("next") || "/library"),
+  });
+
+  const googleMutation = useMutation({
+    mutationFn: async () => {
+      const result = await signIn.social({
+        provider: "google",
+        callbackURL: "/library",
+      });
+      if (result.error) {
+        throw new UserFacingError(
+          authErrorMessage("signin", result.error.message),
+        );
+      }
+      return result;
+    },
   });
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -111,57 +157,79 @@ function AuthForm() {
               : "Create an account. Your first book is a few seconds away."}
           </p>
 
-          <form onSubmit={submit} className="mt-9 space-y-5">
-            {mode === "signup" && (
-              <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  autoComplete="name"
-                  required
-                  placeholder="How should Loreline address you?"
-                />
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                placeholder="you@example.com"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete={
-                  mode === "signin" ? "current-password" : "new-password"
-                }
-                minLength={10}
-                required
-                placeholder="At least 10 characters"
-              />
-            </div>
+          <div className="mt-9 space-y-5">
             <Button
-              type="submit"
+              type="button"
+              variant="outline"
               size="xl"
               className="w-full"
-              disabled={authMutation.isPending}
+              disabled={googleMutation.isPending}
+              onClick={() => googleMutation.mutate()}
             >
-              {authMutation.isPending ? (
-                <LoaderCircle className="animate-spin" />
-              ) : null}
-              {mode === "signin" ? "Sign in" : "Create account"}
-              <ArrowRight data-icon="inline-end" />
+              {googleMutation.isPending ? (
+                <LoaderCircle className="animate-spin" data-icon="inline-start" />
+              ) : (
+                <GoogleIcon />
+              )}
+              Continue with Google
             </Button>
-          </form>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <span className="h-px flex-1 bg-border" />
+              <span>or</span>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            <form onSubmit={submit} className="space-y-5">
+              {mode === "signup" && (
+                <div className="space-y-2">
+                  <Label htmlFor="name">Name</Label>
+                  <Input
+                    id="name"
+                    name="name"
+                    autoComplete="name"
+                    required
+                    placeholder="How should Loreline address you?"
+                  />
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete={
+                    mode === "signin" ? "current-password" : "new-password"
+                  }
+                  minLength={10}
+                  required
+                  placeholder="At least 10 characters"
+                />
+              </div>
+              <Button
+                type="submit"
+                size="xl"
+                className="w-full"
+                disabled={authMutation.isPending}
+              >
+                {authMutation.isPending ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : null}
+                {mode === "signin" ? "Sign in" : "Create account"}
+                <ArrowRight data-icon="inline-end" />
+              </Button>
+            </form>
+          </div>
           <p className="mt-6 text-center text-sm text-muted-foreground">
             {mode === "signin" ? "New to Loreline?" : "Already have a library?"}{" "}
             <button
