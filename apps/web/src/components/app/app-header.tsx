@@ -1,10 +1,15 @@
 "use client";
 
+import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Library, LogOut, Settings } from "lucide-react";
+import type { CurrentUser } from "@loreline/contracts/auth";
 import { Logo } from "@/components/brand/logo";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,9 +19,20 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "@/lib/auth-client";
+import { UserFacingError } from "@/lib/errors";
 
-export function AppHeader({ user }: { user: { name: string; email: string } }) {
-  const router = useRouter();
+export function AppHeader({ user }: { user: CurrentUser }) {
+  const signOutMutation = useMutation({
+    mutationFn: async () => {
+      const result = await signOut();
+      if (result.error) {
+        throw new UserFacingError(
+          "We couldn’t sign you out. Please try again.",
+        );
+      }
+    },
+    onSuccess: () => window.location.assign("/"),
+  });
   const initials = user.name
     .split(/\s+/)
     .map((part) => part[0])
@@ -46,6 +62,13 @@ export function AppHeader({ user }: { user: { name: string; email: string } }) {
               }
             >
               <Avatar className="size-7">
+                {user.image ? (
+                  <AvatarImage
+                    src={user.image}
+                    alt={`${user.name}'s profile picture`}
+                    referrerPolicy="no-referrer"
+                  />
+                ) : null}
                 <AvatarFallback className="bg-primary text-[0.65rem] text-primary-foreground">
                   {initials}
                 </AvatarFallback>
@@ -70,11 +93,8 @@ export function AppHeader({ user }: { user: { name: string; email: string } }) {
                 </span>
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={async () => {
-                  await signOut();
-                  router.push("/");
-                  router.refresh();
-                }}
+                disabled={signOutMutation.isPending}
+                onClick={() => signOutMutation.mutate()}
               >
                 <LogOut />
                 Sign out

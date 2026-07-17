@@ -32,11 +32,17 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 10,
   },
+  account: {
+    accountLinking: {
+      updateUserInfoOnLink: true,
+    },
+  },
   socialProviders: googleConfigured
     ? {
         google: {
           clientId: process.env.GOOGLE_CLIENT_ID!,
           clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+          overrideUserInfoOnSignIn: true,
         },
       }
     : undefined,

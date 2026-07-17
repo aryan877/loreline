@@ -4,13 +4,15 @@ import { useMutation } from "@tanstack/react-query";
 import { ArrowRight, Check, LoaderCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signIn, signUp } from "@/lib/auth-client";
+import { safeAuthRedirect } from "@/lib/auth-redirect";
 import { UserFacingError } from "@/lib/errors";
+import { showErrorToast } from "@/lib/toast-error";
 
 function authErrorMessage(mode: "signin" | "signup", message?: string) {
   if (message && /already|exist/i.test(message))
@@ -57,6 +59,19 @@ function AuthForm() {
   const router = useRouter();
   const search = useSearchParams();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const redirectPath = safeAuthRedirect(search.get("next"));
+  const oauthError = search.get("error");
+
+  useEffect(() => {
+    if (!oauthError) return;
+
+    showErrorToast(
+      new UserFacingError(
+        "Google sign-in wasn’t completed. Please try again.",
+      ),
+    );
+    router.replace("/sign-in");
+  }, [oauthError, router]);
 
   const authMutation = useMutation({
     mutationFn: async (form: {
@@ -79,14 +94,15 @@ function AuthForm() {
       }
       return result;
     },
-    onSuccess: () => router.push(search.get("next") || "/library"),
+    onSuccess: () => router.push(redirectPath),
   });
 
   const googleMutation = useMutation({
     mutationFn: async () => {
       const result = await signIn.social({
         provider: "google",
-        callbackURL: "/library",
+        callbackURL: redirectPath,
+        errorCallbackURL: "/sign-in",
       });
       if (result.error) {
         throw new UserFacingError(
