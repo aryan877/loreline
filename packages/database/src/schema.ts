@@ -11,6 +11,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  type AnyPgColumn,
   uuid,
   vector,
 } from "drizzle-orm/pg-core";
@@ -106,6 +107,34 @@ export const bookStatus = pgEnum("book_status", [
   "failed",
 ]);
 export const messageRole = pgEnum("message_role", ["user", "assistant"]);
+
+export const folders = pgTable(
+  "folders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    parentId: uuid("parent_id").references((): AnyPgColumn => folders.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("folders_user_parent_idx").on(table.userId, table.parentId),
+    uniqueIndex("folders_user_parent_name_idx").on(
+      table.userId,
+      table.parentId,
+      table.name,
+    ),
+  ],
+);
 
 export const books = pgTable(
   "books",
