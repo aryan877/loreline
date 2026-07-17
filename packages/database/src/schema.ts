@@ -143,6 +143,7 @@ export const books = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    folderId: uuid("folder_id").references(() => folders.id),
     title: text("title").notNull(),
     author: text("author"),
     objectKey: text("object_key").notNull(),
@@ -165,6 +166,7 @@ export const books = pgTable(
       .defaultNow(),
   },
   (table) => [
+    index("books_user_folder_idx").on(table.userId, table.folderId),
     index("books_user_recent_idx").on(table.userId, table.lastOpenedAt),
   ],
 );
