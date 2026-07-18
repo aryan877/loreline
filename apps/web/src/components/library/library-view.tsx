@@ -6,7 +6,15 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { DragDropProvider } from "@dnd-kit/react";
+import {
+  DragDropProvider,
+  KeyboardSensor,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  type DragStartEvent,
+} from "@dnd-kit/react";
+import { PointerActivationConstraints } from "@dnd-kit/dom";
 import { formatDistanceToNow } from "date-fns";
 import {
   ArrowRight,
@@ -26,7 +34,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,6 +65,7 @@ import { Progress } from "@/components/ui/progress";
 import { apiJson } from "@/lib/api-client";
 import { toUserMessage, UserFacingError } from "@/lib/errors";
 import { showErrorToast } from "@/lib/toast-error";
+import { cn } from "@/lib/utils";
 import {
   type BeginBookUploadResponse,
   MAX_BOOK_FILE_SIZE,
@@ -59,6 +75,120 @@ import {
   type UploadBookResponse,
 } from "@loreline/contracts/books";
 import type { Folder, FolderTreeNode } from "@loreline/contracts/folders";
+
+type DragPayload =
+  | { type: "book"; id: string }
+  | { type: "stack"; id: string };
+type DropPayload =
+  | { type: "shelf-target"; id: "shelf" }
+  | { type: "stack-target"; id: string };
+
+const dragSensors = [
+  PointerSensor.configure({
+    activationConstraints: [
+      new PointerActivationConstraints.Distance({ value: 6 }),
+    ],
+    preventActivation: (event) =>
+      (event.target as Element | null)?.closest("button, input, textarea, select") !==
+      null,
+  }),
+  KeyboardSensor,
+];
+
+function DraggableItem({
+  id,
+  data,
+  className,
+  children,
+}: {
+  id: string;
+  data: DragPayload;
+  className?: string;
+  children: ReactNode;
+}) {
+  const { ref, isDragging } = useDraggable<DragPayload>({ id, data });
+
+  return (
+    <div
+      ref={ref}
+      className={cn(className, isDragging && "opacity-60")}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DraggableDropTarget({
+  id,
+  data,
+  dropId,
+  dropData,
+  className,
+  children,
+}: {
+  id: string;
+  data: DragPayload;
+  dropId: string;
+  dropData: DropPayload;
+  className?: string;
+  children: ReactNode;
+}) {
+  const { ref: draggableRef, isDragging } = useDraggable<DragPayload>({
+    id,
+    data,
+  });
+  const { ref: droppableRef, isDropTarget } = useDroppable<DropPayload>({
+    id: dropId,
+    data: dropData,
+  });
+
+  const setRefs = useCallback(
+    (element: Element | null) => {
+      draggableRef(element);
+      droppableRef(element);
+    },
+    [draggableRef, droppableRef],
+  );
+
+  return (
+    <div
+      ref={setRefs}
+      className={cn(
+        className,
+        isDragging && "opacity-60",
+        isDropTarget && "ring-2 ring-brand-ink bg-brand-soft",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DropTarget({
+  id,
+  data,
+  className,
+  children,
+}: {
+  id: string;
+  data: DropPayload;
+  className?: string;
+  children: ReactNode;
+}) {
+  const { ref, isDropTarget } = useDroppable<DropPayload>({ id, data });
+
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        className,
+        isDropTarget && "ring-2 ring-brand-ink bg-brand-soft",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
 async function getBooks(
   folderId: string | null,
@@ -159,6 +289,7 @@ export function LibraryView() {
   const [moveStackDestination, setMoveStackDestination] = useState<
     string | null
   >(null);
+  const [activeDrag, setActiveDrag] = useState<DragPayload | null>(null);
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -479,9 +610,31 @@ export function LibraryView() {
     });
   }
 
+  function handleDragStart(event: DragStartEvent) {
+    const payload = event.operation.source?.data;
+    if (
+      payload &&
+      (payload.type === "book" || payload.type === "stack") &&
+      typeof payload.id === "string"
+    ) {
+      setActiveDrag({ type: payload.type, id: payload.id });
+    }
+  }
+
+  function handleDragEnd() {
+    setActiveDrag(null);
+  }
+
   return (
-    <DragDropProvider>
-      <main className="mx-auto max-w-[80rem] px-4 py-10 sm:px-0 sm:py-16">
+    <DragDropProvider
+      sensors={dragSensors}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <main
+        data-dragging={activeDrag ? activeDrag.type : undefined}
+        className="mx-auto max-w-[80rem] px-4 py-10 sm:px-0 sm:py-16"
+      >
       <div className="flex flex-col justify-between gap-7 sm:flex-row sm:items-end">
         <div>
           <p className="text-sm font-semibold text-brand-ink">
@@ -931,13 +1084,19 @@ export function LibraryView() {
       </div>
 
       <div className="mt-4 flex min-h-8 items-center gap-1 text-sm text-muted-foreground">
-        <button
-          type="button"
-          className="font-medium text-foreground hover:text-brand-ink"
-          onClick={returnToShelf}
+        <DropTarget
+          id="shelf"
+          data={{ type: "shelf-target", id: "shelf" }}
+          className="rounded-md"
         >
-          Shelf
-        </button>
+          <button
+            type="button"
+            className="px-1 font-medium text-foreground hover:text-brand-ink"
+            onClick={returnToShelf}
+          >
+            Shelf
+          </button>
+        </DropTarget>
         {folderId && breadcrumbQuery.isPending ? (
           <span className="ml-2 h-4 w-24 animate-pulse rounded bg-muted" />
         ) : folderId && breadcrumbQuery.isError ? (
@@ -993,8 +1152,12 @@ export function LibraryView() {
       ) : folders.length > 0 ? (
         <div className="grid grid-cols-2 gap-3 py-6 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
           {folders.map((folder) => (
-            <div
+            <DraggableDropTarget
               key={folder.id}
+              id={`stack:${folder.id}`}
+              data={{ type: "stack", id: folder.id }}
+              dropId={`stack-target:${folder.id}`}
+              dropData={{ type: "stack-target", id: folder.id }}
               className="flex min-w-0 items-center gap-2 rounded-xl border bg-card p-2"
             >
               <button
@@ -1037,7 +1200,7 @@ export function LibraryView() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
+            </DraggableDropTarget>
           ))}
         </div>
       ) : null}
@@ -1092,8 +1255,10 @@ export function LibraryView() {
         <>
           <div className="grid grid-cols-2 gap-x-5 gap-y-10 py-10 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
             {filtered.map((book, index) => (
-              <div
+              <DraggableItem
                 key={book.id}
+                id={`book:${book.id}`}
+                data={{ type: "book", id: book.id }}
                 className="group relative min-w-0"
               >
                 <Link href={`/library/${book.id}`}>
@@ -1132,7 +1297,7 @@ export function LibraryView() {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              </div>
+              </DraggableItem>
             ))}
           </div>
           {booksQuery.hasNextPage && (
