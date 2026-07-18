@@ -1146,7 +1146,7 @@ export function LibraryView() {
         >
           <button
             type="button"
-            className="px-1 font-medium text-foreground hover:text-brand-ink"
+            className="cursor-pointer px-1 font-medium text-foreground hover:text-brand-ink"
             onClick={returnToShelf}
           >
             Shelf
@@ -1167,7 +1167,7 @@ export function LibraryView() {
               ) : (
                 <button
                   type="button"
-                  className="truncate hover:text-foreground"
+                  className="cursor-pointer truncate hover:text-foreground"
                   onClick={() => selectFolder(folder.id)}
                 >
                   {folder.name}
