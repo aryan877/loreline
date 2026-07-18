@@ -9,6 +9,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import {
   ArrowRight,
+  ArrowRightLeft,
   BookOpen,
   ChevronRight,
   Ellipsis,
@@ -98,6 +99,22 @@ function flattenFolderTree(
   ]);
 }
 
+function collectFolderIds(node: FolderTreeNode): string[] {
+  return [node.id, ...node.children.flatMap(collectFolderIds)];
+}
+
+function getExcludedFolderIds(
+  nodes: FolderTreeNode[],
+  targetId: string,
+): Set<string> {
+  for (const node of nodes) {
+    if (node.id === targetId) return new Set(collectFolderIds(node));
+    const nested = getExcludedFolderIds(node.children, targetId);
+    if (nested.size > 0) return nested;
+  }
+  return new Set();
+}
+
 function BookCover({ title, index }: { title: string; index: number }) {
   const tones = ["bg-coral-soft", "bg-sage-soft", "bg-sky-soft", "bg-accent"];
   return (
@@ -136,6 +153,11 @@ export function LibraryView() {
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState<BookListItem | null>(null);
   const [moveDestination, setMoveDestination] = useState<string | null>(null);
+  const [moveStackOpen, setMoveStackOpen] = useState(false);
+  const [moveStackTarget, setMoveStackTarget] = useState<Folder | null>(null);
+  const [moveStackDestination, setMoveStackDestination] = useState<
+    string | null
+  >(null);
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -152,7 +174,7 @@ export function LibraryView() {
   const folderTreeQuery = useQuery({
     queryKey: ["folderTree"],
     queryFn: getFolderTree,
-    enabled: moveOpen,
+    enabled: moveOpen || moveStackOpen,
   });
   const booksQuery = useInfiniteQuery({
     queryKey: ["books", folderId],
@@ -292,7 +314,39 @@ export function LibraryView() {
         exact: true,
       });
       setMoveTarget(null);
+      setMoveDestination(null);
       setMoveOpen(false);
+    },
+  });
+  const moveStackMutation = useMutation({
+    mutationFn: ({ folderId, parentId }: { folderId: string; parentId: string | null }) =>
+      apiJson<{ folder: Folder }>(`/api/folders/${folderId}/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parentId }),
+      }),
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({
+        queryKey: ["folderTree"],
+        exact: true,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["folders", folderId],
+        exact: true,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["folders", variables.parentId],
+        exact: true,
+      });
+      if (folderId) {
+        await queryClient.invalidateQueries({
+          queryKey: ["folderBreadcrumb", folderId],
+          exact: true,
+        });
+      }
+      setMoveStackTarget(null);
+      setMoveStackDestination(null);
+      setMoveStackOpen(false);
     },
   });
   const books = useMemo(
@@ -302,6 +356,12 @@ export function LibraryView() {
   const folders = foldersQuery.data?.folders ?? [];
   const breadcrumb = breadcrumbQuery.data?.breadcrumb ?? [];
   const folderOptions = flattenFolderTree(folderTreeQuery.data?.tree ?? []);
+  const excludedFolderIds = moveStackTarget
+    ? getExcludedFolderIds(folderTreeQuery.data?.tree ?? [], moveStackTarget.id)
+    : new Set<string>();
+  const moveStackOptions = folderOptions.filter(
+    ({ folder }) => !excludedFolderIds.has(folder.id),
+  );
   const filtered = books.filter((book) =>
     `${book.title} ${book.author ?? ""}`
       .toLowerCase()
@@ -401,6 +461,20 @@ export function LibraryView() {
     moveBookMutation.mutate({
       bookId: moveTarget.id,
       folderId: moveDestination,
+    });
+  }
+
+  function openMoveStack(folder: Folder) {
+    setMoveStackTarget(folder);
+    setMoveStackDestination(folder.parentId);
+    setMoveStackOpen(true);
+  }
+
+  function moveStack() {
+    if (!moveStackTarget) return;
+    moveStackMutation.mutate({
+      folderId: moveStackTarget.id,
+      parentId: moveStackDestination,
     });
   }
 
@@ -564,7 +638,10 @@ export function LibraryView() {
             open={moveOpen}
             onOpenChange={(nextOpen) => {
               setMoveOpen(nextOpen);
-              if (!nextOpen) setMoveTarget(null);
+              if (!nextOpen) {
+                setMoveTarget(null);
+                setMoveDestination(null);
+              }
             }}
           >
             <DialogContent className="rounded-3xl p-6 sm:max-w-md">
@@ -599,7 +676,12 @@ export function LibraryView() {
                       className="flex w-full items-center gap-3 rounded-lg p-2 text-left text-sm hover:bg-control aria-pressed:bg-control"
                     >
                       <FolderIcon className="size-4 text-brand-ink" />
-                      Shelf
+                      <span>Shelf</span>
+                      {folderId === null && (
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          (Current)
+                        </span>
+                      )}
                     </button>
                     {folderOptions.map(({ folder, depth }) => (
                       <button
@@ -612,6 +694,11 @@ export function LibraryView() {
                       >
                         <FolderIcon className="size-4 shrink-0 text-brand-ink" />
                         <span className="truncate">{folder.name}</span>
+                        {folder.id === folderId && (
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            (Current)
+                          </span>
+                        )}
                       </button>
                     ))}
                   </>
@@ -628,7 +715,9 @@ export function LibraryView() {
                 <Button
                   type="button"
                   disabled={
-                    moveBookMutation.isPending || folderTreeQuery.isPending
+                    moveBookMutation.isPending ||
+                    folderTreeQuery.isPending ||
+                    moveDestination === folderId
                   }
                   onClick={moveBook}
                 >
@@ -636,6 +725,102 @@ export function LibraryView() {
                     <LoaderCircle className="animate-spin" />
                   )}
                   Move Book
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={moveStackOpen}
+            onOpenChange={(nextOpen) => {
+              setMoveStackOpen(nextOpen);
+              if (!nextOpen) {
+                setMoveStackTarget(null);
+                setMoveStackDestination(null);
+              }
+            }}
+          >
+            <DialogContent className="rounded-3xl p-6 sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="text-3xl font-semibold tracking-[-0.04em]">
+                  Move Stack
+                </DialogTitle>
+                <DialogDescription>
+                  Choose where to place “{moveStackTarget?.name}”.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="mt-2 max-h-72 space-y-1 overflow-y-auto">
+                {folderTreeQuery.isPending ? (
+                  <div className="h-10 animate-pulse rounded-lg bg-muted" />
+                ) : folderTreeQuery.isError ? (
+                  <div className="flex items-center justify-between gap-3 py-3 text-sm text-muted-foreground">
+                    <span>Stacks could not be loaded.</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => folderTreeQuery.refetch()}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      aria-pressed={moveStackDestination === null}
+                      onClick={() => setMoveStackDestination(null)}
+                      className="flex w-full items-center gap-3 rounded-lg p-2 text-left text-sm hover:bg-control aria-pressed:bg-control"
+                    >
+                      <FolderIcon className="size-4 text-brand-ink" />
+                      <span>Shelf</span>
+                      {moveStackTarget?.parentId === null && (
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          (Current)
+                        </span>
+                      )}
+                    </button>
+                    {moveStackOptions.map(({ folder, depth }) => (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        aria-pressed={moveStackDestination === folder.id}
+                        onClick={() => setMoveStackDestination(folder.id)}
+                        style={{ paddingLeft: `${0.5 + depth * 1.25}rem` }}
+                        className="flex w-full items-center gap-3 rounded-lg p-2 pr-2 text-left text-sm hover:bg-control aria-pressed:bg-control"
+                      >
+                        <FolderIcon className="size-4 shrink-0 text-brand-ink" />
+                        <span className="truncate">{folder.name}</span>
+                        {folder.id === moveStackTarget?.parentId && (
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            (Current)
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+              <DialogFooter className="mt-4">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setMoveStackOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={
+                    moveStackMutation.isPending ||
+                    folderTreeQuery.isPending ||
+                    moveStackDestination === moveStackTarget?.parentId
+                  }
+                  onClick={moveStack}
+                >
+                  {moveStackMutation.isPending && (
+                    <LoaderCircle className="animate-spin" />
+                  )}
+                  Move Stack
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -836,6 +1021,10 @@ export function LibraryView() {
                   <DropdownMenuItem onClick={() => openRename(folder)}>
                     <Pencil />
                     Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => openMoveStack(folder)}>
+                    <ArrowRightLeft />
+                    Move to...
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     variant="destructive"
