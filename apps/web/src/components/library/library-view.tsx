@@ -12,6 +12,7 @@ import {
   PointerSensor,
   useDraggable,
   useDroppable,
+  type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/react";
 import { PointerActivationConstraints } from "@dnd-kit/dom";
@@ -506,6 +507,12 @@ export function LibraryView() {
     router.push(`${pathname}?${params}`, { scroll: false });
   }
 
+  function getFolderHref(nextFolderId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("folderId", nextFolderId);
+    return `${pathname}?${params}`;
+  }
+
   function returnToShelf() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("folderId");
@@ -621,8 +628,56 @@ export function LibraryView() {
     }
   }
 
-  function handleDragEnd() {
+  function handleDragEnd(event: DragEndEvent) {
     setActiveDrag(null);
+
+    if (event.canceled) return;
+
+    const source = event.operation.source?.data;
+    const target = event.operation.target?.data;
+    if (!source || !target) return;
+
+    if (source.type === "book" && typeof source.id === "string") {
+      const destinationFolderId =
+        target.type === "shelf-target"
+          ? null
+          : target.type === "stack-target" && typeof target.id === "string"
+            ? target.id
+            : undefined;
+
+      if (destinationFolderId === undefined || destinationFolderId === folderId) {
+        return;
+      }
+
+      moveBookMutation.mutate({
+        bookId: source.id,
+        folderId: destinationFolderId,
+      });
+      return;
+    }
+
+    if (source.type === "stack" && typeof source.id === "string") {
+      const sourceFolder = folders.find((folder) => folder.id === source.id);
+      const destinationParentId =
+        target.type === "shelf-target"
+          ? null
+          : target.type === "stack-target" && typeof target.id === "string"
+            ? target.id
+            : undefined;
+
+      if (
+        destinationParentId === undefined ||
+        destinationParentId === source.id ||
+        destinationParentId === sourceFolder?.parentId
+      ) {
+        return;
+      }
+
+      moveStackMutation.mutate({
+        folderId: source.id,
+        parentId: destinationParentId,
+      });
+    }
   }
 
   return (
@@ -1160,16 +1215,16 @@ export function LibraryView() {
               dropData={{ type: "stack-target", id: folder.id }}
               className="flex min-w-0 items-center gap-2 rounded-xl border bg-card p-2"
             >
-              <button
-                type="button"
-                onClick={() => selectFolder(folder.id)}
+              <Link
+                href={getFolderHref(folder.id)}
+                scroll={false}
                 className="flex min-w-0 flex-1 items-center gap-3 p-2 text-left"
               >
                 <FolderIcon className="size-5 shrink-0 text-brand-ink" />
                 <span className="truncate text-sm font-semibold">
                   {folder.name}
                 </span>
-              </button>
+              </Link>
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
