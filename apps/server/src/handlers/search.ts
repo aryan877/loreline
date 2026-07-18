@@ -7,17 +7,10 @@ import {
   searchBookResponseSchema,
 } from "@loreline/contracts/ai";
 import { ownedBook } from "@/book-utils";
-import {
-  apiError,
-  assertRateLimit,
-  HttpError,
-  requireSession,
-} from "@/http";
-import {
-  DatabaseService,
-  OpenAIService,
-  runServerEffect,
-} from "@/services";
+import { apiError, assertRateLimit, HttpError, requireSession } from "@/http";
+import { DatabaseService, runServerEffect } from "@/services";
+import { AppConfigTag } from "@/config";
+import { createOpenRouterEmbeddings } from "@/openrouter-client";
 
 export async function POST(request: Request) {
   try {
@@ -28,18 +21,17 @@ export async function POST(request: Request) {
       Effect.gen(function* () {
         yield* ownedBook(input.bookId, session.user.id);
         const { db } = yield* DatabaseService;
-        const openai = yield* OpenAIService;
-        if (!openai.client)
+        const config = yield* AppConfigTag;
+        if (!config.openRouterApiKey)
           return yield* Effect.fail(
             new HttpError(503, "Book search is not available yet."),
           );
-        const embedded = yield* Effect.tryPromise(() =>
-          openai.client!.embeddings.create({
-            model: openai.embeddingModel,
-            input: input.query,
+        const [vector] = yield* Effect.tryPromise(() =>
+          createOpenRouterEmbeddings(input.query, {
+            apiKey: config.openRouterApiKey!,
+            model: config.openRouterEmbeddingModel,
           }),
         );
-        const vector = embedded.data[0]?.embedding;
         if (!vector) return [];
         const similarity = sql<number>`1 - (${cosineDistance(bookChunks.embedding, vector)})`;
         return yield* Effect.tryPromise(() =>

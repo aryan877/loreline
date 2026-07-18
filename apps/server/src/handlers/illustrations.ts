@@ -6,19 +6,16 @@ import {
   illustrationResponseSchema,
 } from "@loreline/contracts/ai";
 import { ownedBook } from "@/book-utils";
-import {
-  apiError,
-  assertRateLimit,
-  HttpError,
-  requireSession,
-} from "@/http";
-import {
-  DatabaseService,
-  OpenAIService,
-  runServerEffect,
-  StorageService,
-} from "@/services";
-import { callImageModel } from "@/openai-contracts";
+import { apiError, assertRateLimit, HttpError, requireSession } from "@/http";
+import { DatabaseService, runServerEffect, StorageService } from "@/services";
+import { AppConfigTag } from "@/config";
+import { generateOpenRouterImage } from "@/openrouter-client";
+
+const imageExtension = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+} as const;
 
 export async function POST(request: Request) {
   try {
@@ -30,36 +27,34 @@ export async function POST(request: Request) {
         const book = yield* ownedBook(input.bookId, session.user.id);
         const { db } = yield* DatabaseService;
         const storage = yield* StorageService;
-        const openai = yield* OpenAIService;
-        if (!openai.client)
+        const config = yield* AppConfigTag;
+        if (!config.openRouterApiKey)
           return yield* Effect.fail(
             new HttpError(503, "Visual generation is not available yet."),
           );
 
-        const response = yield* Effect.tryPromise(() =>
-          callImageModel(openai.client!, {
-            model: openai.imageModel,
-            prompt: [
+        const image = yield* Effect.tryPromise(() =>
+          generateOpenRouterImage(
+            [
               "Create a thoughtful editorial illustration that helps a reader understand and imagine a passage.",
               "No text, labels, UI, book covers, logos, or watermarks. Sophisticated print texture, clear subject, restrained composition.",
               `Book: ${book.title}. Page: ${input.page}. Reader request: ${input.prompt}.`,
               input.visibleText
-                ? `Passage context: ${input.visibleText.slice(0, 5000)}`
+                ? `Passage context: ${input.visibleText.slice(0, 3000)}`
                 : "",
             ]
               .filter(Boolean)
               .join("\n"),
-          }),
+            {
+              apiKey: config.openRouterApiKey!,
+              model: config.openRouterImageModel,
+            },
+          ),
         );
-        const encoded = response.data?.[0]?.b64_json;
-        if (!encoded)
-          return yield* Effect.fail(
-            new HttpError(502, "The image model returned no illustration."),
-          );
-        const bytes = Uint8Array.from(Buffer.from(encoded, "base64"));
+        const bytes = Uint8Array.from(Buffer.from(image.encoded, "base64"));
         const id = crypto.randomUUID();
-        const objectKey = `users/${session.user.id}/books/${book.id}/illustrations/${id}.webp`;
-        yield* storage.put(objectKey, bytes, "image/webp");
+        const objectKey = `users/${session.user.id}/books/${book.id}/illustrations/${id}.${imageExtension[image.mediaType]}`;
+        yield* storage.put(objectKey, bytes, image.mediaType);
         const [saved] = yield* Effect.tryPromise(() =>
           db
             .insert(illustrations)
@@ -79,7 +74,7 @@ export async function POST(request: Request) {
         return illustrationResponseSchema.parse({
           id: saved.id,
           createdAt: saved.createdAt.toISOString(),
-          dataUrl: `data:image/webp;base64,${encoded}`,
+          dataUrl: `data:${image.mediaType};base64,${image.encoded}`,
         });
       }),
     );

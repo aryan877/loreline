@@ -117,48 +117,42 @@ export const StorageLive = Layer.effect(
   }),
 );
 
-export class OpenAIService extends Context.Tag("Loreline/OpenAI")<
-  OpenAIService,
+export class RealtimeService extends Context.Tag("Loreline/Realtime")<
+  RealtimeService,
   {
     readonly client?: OpenAI;
-    readonly chatModel: string;
     readonly realtimeModel: string;
-    readonly imageModel: string;
-    readonly embeddingModel: string;
   }
 >() {}
 
-export const OpenAILive = Layer.effect(
-  OpenAIService,
+export const RealtimeLive = Layer.effect(
+  RealtimeService,
   Effect.gen(function* () {
     const config = yield* AppConfigTag;
     return {
       client: config.openAiApiKey
         ? new OpenAI({ apiKey: config.openAiApiKey })
         : undefined,
-      chatModel: config.chatModel,
       realtimeModel: config.realtimeModel,
-      imageModel: config.imageModel,
-      embeddingModel: config.embeddingModel,
     };
   }),
 );
 
 const ConfiguredStorage = StorageLive.pipe(Layer.provide(AppConfigLive));
-const ConfiguredOpenAI = OpenAILive.pipe(Layer.provide(AppConfigLive));
+const ConfiguredRealtime = RealtimeLive.pipe(Layer.provide(AppConfigLive));
 
 export const AppLive = Layer.mergeAll(
   AppConfigLive,
   DatabaseLive,
   ConfiguredStorage,
-  ConfiguredOpenAI,
+  ConfiguredRealtime,
 );
 
 export const runServerEffect = <A, E>(
   program: Effect.Effect<
     A,
     E,
-    DatabaseService | StorageService | OpenAIService | AppConfigTag
+    DatabaseService | StorageService | RealtimeService | AppConfigTag
   >,
 ) => Effect.runPromise(program.pipe(Effect.provide(AppLive)));
 import "server-only";

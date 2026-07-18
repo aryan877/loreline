@@ -6,10 +6,9 @@ export interface AppConfig {
   readonly openAiApiKey?: string;
   readonly openRouterApiKey?: string;
   readonly compactionModel: string;
-  readonly chatModel: string;
   readonly realtimeModel: string;
-  readonly imageModel: string;
-  readonly embeddingModel: string;
+  readonly openRouterImageModel: string;
+  readonly openRouterEmbeddingModel: string;
   readonly r2AccountId: string;
   readonly r2AccessKeyId: string;
   readonly r2SecretAccessKey: string;
@@ -33,21 +32,18 @@ export const AppConfigLive = Layer.effect(
     return {
       openAiApiKey: yield* optional("OPENAI_API_KEY"),
       openRouterApiKey: yield* optional("OPENROUTER_API_KEY"),
-      compactionModel: yield* Config.string(
-        "OPENROUTER_COMPACTION_MODEL",
-      ).pipe(Config.withDefault("deepseek/deepseek-v4-flash")),
-      chatModel: yield* Config.string("OPENAI_CHAT_MODEL").pipe(
-        Config.withDefault("gpt-5.6-luna"),
+      compactionModel: yield* Config.string("OPENROUTER_COMPACTION_MODEL").pipe(
+        Config.withDefault("deepseek/deepseek-v4-flash"),
       ),
       realtimeModel: yield* Config.string("OPENAI_REALTIME_MODEL").pipe(
         Config.withDefault("gpt-realtime-2.1-mini"),
       ),
-      imageModel: yield* Config.string("OPENAI_IMAGE_MODEL").pipe(
-        Config.withDefault("gpt-image-2"),
+      openRouterImageModel: yield* Config.string("OPENROUTER_IMAGE_MODEL").pipe(
+        Config.withDefault("openai/gpt-image-1-mini"),
       ),
-      embeddingModel: yield* Config.string("OPENAI_EMBEDDING_MODEL").pipe(
-        Config.withDefault("text-embedding-3-small"),
-      ),
+      openRouterEmbeddingModel: yield* Config.string(
+        "OPENROUTER_EMBEDDING_MODEL",
+      ).pipe(Config.withDefault("openai/text-embedding-3-small")),
       r2AccountId: yield* Config.string("R2_ACCOUNT_ID"),
       r2AccessKeyId: yield* Config.string("R2_ACCESS_KEY_ID"),
       r2SecretAccessKey: yield* Config.string("R2_SECRET_ACCESS_KEY"),

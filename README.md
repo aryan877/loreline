@@ -13,7 +13,7 @@
 | Page-first answers    | Visible text/image/selection/pointer first; pgvector RAG only when the page is insufficient |
 | Production boundaries | Effect services, Drizzle migrations, Redis limits, Zod validation, cursor pagination        |
 | UI state              | TanStack Query for server state, mutations, infinite pagination, and cache invalidation     |
-| Local operations      | Dockerized pgvector Postgres and Redis; signed browser-to-R2 PDF uploads                   |
+| Local operations      | Dockerized pgvector Postgres and Redis; signed browser-to-R2 PDF uploads                    |
 
 ## Quick start
 
@@ -72,28 +72,29 @@ The realtime agent has three browser-side tools:
 
 Copy `.env.example` to `.env`. The private `loreline-books` bucket uses a bucket-scoped Object Read & Write token.
 
-| Variable                  | Required   | Purpose                                                     |
-| ------------------------- | ---------- | ----------------------------------------------------------- |
-| `OPENAI_API_KEY`          | For AI     | Responses, embeddings, Realtime client secrets, GPT Image 2 |
-| `R2_ACCOUNT_ID`           | Yes        | Cloudflare account containing the private R2 bucket          |
-| `R2_ACCESS_KEY_ID`        | Yes        | Bucket-scoped S3-compatible access key                       |
-| `R2_SECRET_ACCESS_KEY`    | Yes        | Bucket-scoped S3-compatible secret                           |
-| `R2_BUCKET_NAME`          | Yes        | Private PDF bucket                                           |
-| `BETTER_AUTH_SECRET`      | Production | Session signing; use 32+ cryptographically random bytes     |
-| `DATABASE_URL`            | Yes        | Postgres connection string                                  |
-| `REDIS_URL`               | Yes        | Distributed rate limits and Better Auth secondary storage   |
-| `SERVER_INTERNAL_URL`     | Yes        | Server app URL used by the web gateway                       |
-| `BETTER_AUTH_URL`         | Yes        | Canonical deployed origin                                   |
-| `NEXT_PUBLIC_APP_URL`     | Yes        | Browser-facing application origin                           |
-| `GOOGLE_CLIENT_ID/SECRET` | Optional   | Google sign-in                                              |
+| Variable                  | Required   | Purpose                                                   |
+| ------------------------- | ---------- | --------------------------------------------------------- |
+| `OPENAI_API_KEY`          | For voice  | Realtime client secrets                                   |
+| `OPENROUTER_API_KEY`      | For AI     | Compaction, illustrations, and book retrieval embeddings  |
+| `R2_ACCOUNT_ID`           | Yes        | Cloudflare account containing the private R2 bucket       |
+| `R2_ACCESS_KEY_ID`        | Yes        | Bucket-scoped S3-compatible access key                    |
+| `R2_SECRET_ACCESS_KEY`    | Yes        | Bucket-scoped S3-compatible secret                        |
+| `R2_BUCKET_NAME`          | Yes        | Private PDF bucket                                        |
+| `BETTER_AUTH_SECRET`      | Production | Session signing; use 32+ cryptographically random bytes   |
+| `DATABASE_URL`            | Yes        | Postgres connection string                                |
+| `REDIS_URL`               | Yes        | Distributed rate limits and Better Auth secondary storage |
+| `SERVER_INTERNAL_URL`     | Yes        | Server app URL used by the web gateway                    |
+| `BETTER_AUTH_URL`         | Yes        | Canonical deployed origin                                 |
+| `NEXT_PUBLIC_APP_URL`     | Yes        | Browser-facing application origin                         |
+| `GOOGLE_CLIENT_ID/SECRET` | Optional   | Google sign-in                                            |
 
 The checked-in model defaults are:
 
 ```dotenv
-OPENAI_CHAT_MODEL=gpt-5.6-luna
 OPENAI_REALTIME_MODEL=gpt-realtime-2.1-mini
-OPENAI_IMAGE_MODEL=gpt-image-2
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENROUTER_COMPACTION_MODEL=deepseek/deepseek-v4-flash
+OPENROUTER_IMAGE_MODEL=openai/gpt-image-1-mini
+OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-small
 ```
 
 ## Important commands

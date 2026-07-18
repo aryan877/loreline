@@ -14,10 +14,7 @@ import {
   uuid,
   vector,
 } from "drizzle-orm/pg-core";
-import type {
-  HighlightRect,
-  Pointer,
-} from "@loreline/contracts/domain/reader";
+import type { HighlightRect, Pointer } from "@loreline/contracts/domain/reader";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -140,6 +137,8 @@ export const books = pgTable(
   ],
 );
 
+export const BOOK_EMBEDDING_DIMENSIONS = 1536;
+
 export const bookChunks = pgTable(
   "book_chunks",
   {
@@ -153,7 +152,7 @@ export const bookChunks = pgTable(
     pageStart: integer("page_start").notNull(),
     pageEnd: integer("page_end").notNull(),
     content: text("content").notNull(),
-    embedding: vector("embedding", { dimensions: 1536 }),
+    embedding: vector("embedding", { dimensions: BOOK_EMBEDDING_DIMENSIONS }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

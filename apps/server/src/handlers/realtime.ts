@@ -1,12 +1,7 @@
 import { Effect } from "effect";
-import {
-  apiError,
-  assertRateLimit,
-  HttpError,
-  requireSession,
-} from "@/http";
-import { OpenAIService, runServerEffect } from "@/services";
-import { mintRealtimeClientSecret } from "@/openai-contracts";
+import { apiError, assertRateLimit, HttpError, requireSession } from "@/http";
+import { RealtimeService, runServerEffect } from "@/services";
+import { mintRealtimeClientSecret } from "@/realtime-contracts";
 import {
   realtimeTokenInputSchema,
   realtimeTokenResponseSchema,
@@ -22,7 +17,7 @@ export async function POST(request: Request) {
 
     const result = await runServerEffect(
       Effect.gen(function* () {
-        const openai = yield* OpenAIService;
+        const openai = yield* RealtimeService;
         if (!openai.client)
           return yield* Effect.fail(
             new HttpError(503, "Realtime voice is not available yet."),

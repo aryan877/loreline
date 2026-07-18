@@ -5,18 +5,10 @@ import { extractText, getDocumentProxy } from "unpdf";
 import { bookChunks, books } from "@loreline/database/schema";
 import { uploadBookResponseSchema } from "@loreline/contracts/books";
 import { chunkPages, ownedBook } from "@/book-utils";
-import {
-  apiError,
-  assertRateLimit,
-  HttpError,
-  requireSession,
-} from "@/http";
-import {
-  DatabaseService,
-  OpenAIService,
-  runServerEffect,
-  StorageService,
-} from "@/services";
+import { apiError, assertRateLimit, HttpError, requireSession } from "@/http";
+import { DatabaseService, runServerEffect, StorageService } from "@/services";
+import { AppConfigTag } from "@/config";
+import { createOpenRouterEmbeddings } from "@/openrouter-client";
 
 export const runtime = "nodejs";
 
@@ -27,18 +19,25 @@ export async function POST(
   try {
     const session = await requireSession();
     const { bookId } = await context.params;
-    await assertRateLimit(`upload-complete:${session.user.id}`, 10, 60 * 60 * 1000);
+    await assertRateLimit(
+      `upload-complete:${session.user.id}`,
+      10,
+      60 * 60 * 1000,
+    );
     const result = await runServerEffect(
       Effect.gen(function* () {
         const book = yield* ownedBook(bookId, session.user.id);
         if (book.status === "ready") return book;
         const { db } = yield* DatabaseService;
         const storage = yield* StorageService;
-        const openai = yield* OpenAIService;
+        const config = yield* AppConfigTag;
         const bytes = yield* storage.get(book.objectKey);
         if (bytes.byteLength !== book.fileSize)
           return yield* Effect.fail(
-            new HttpError(422, "The uploaded PDF was incomplete. Please try again."),
+            new HttpError(
+              422,
+              "The uploaded PDF was incomplete. Please try again.",
+            ),
           );
         const signature = new TextDecoder().decode(bytes.slice(0, 5));
         if (signature !== "%PDF-")
@@ -59,14 +58,17 @@ export async function POST(
         });
         const chunks = chunkPages(parsed.text);
         let embeddings: number[][] = [];
-        if (openai.client && chunks.length) {
+        if (config.openRouterApiKey && chunks.length) {
           const embedded = yield* Effect.tryPromise(() =>
-            openai.client!.embeddings.create({
-              model: openai.embeddingModel,
-              input: chunks.map((chunk) => chunk.content),
-            }),
+            createOpenRouterEmbeddings(
+              chunks.map((chunk) => chunk.content),
+              {
+                apiKey: config.openRouterApiKey!,
+                model: config.openRouterEmbeddingModel,
+              },
+            ),
           );
-          embeddings = embedded.data.map((item) => item.embedding);
+          embeddings = embedded;
         }
 
         yield* Effect.tryPromise(() =>
