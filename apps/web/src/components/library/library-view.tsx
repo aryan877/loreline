@@ -19,6 +19,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Trash2,
   UploadCloud,
 } from "lucide-react";
 import Link from "next/link";
@@ -115,6 +116,8 @@ export function LibraryView() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<Folder | null>(null);
   const [renameName, setRenameName] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Folder | null>(null);
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -214,6 +217,32 @@ export function LibraryView() {
       setRenameOpen(false);
     },
   });
+  const deleteFolderMutation = useMutation({
+    mutationFn: (folderId: string) =>
+      apiJson<{ folder: Folder }>(`/api/folders/${folderId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (deleteTarget?.parentId) params.set("folderId", deleteTarget.parentId);
+      else params.delete("folderId");
+      const query = params.toString();
+      router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+
+      await queryClient.invalidateQueries({
+        queryKey: ["folders", folderId],
+        exact: true,
+      });
+      if (folderId) {
+        await queryClient.invalidateQueries({
+          queryKey: ["folderBreadcrumb", folderId],
+          exact: true,
+        });
+      }
+      setDeleteTarget(null);
+      setDeleteOpen(false);
+    },
+  });
   const books = useMemo(
     () => booksQuery.data?.pages.flatMap((page) => page.books) ?? [],
     [booksQuery.data],
@@ -296,6 +325,16 @@ export function LibraryView() {
     }
     if (!renameTarget) return;
     renameFolderMutation.mutate({ folderId: renameTarget.id, name });
+  }
+
+  function openDelete(folder: Folder) {
+    setDeleteTarget(folder);
+    setDeleteOpen(true);
+  }
+
+  function deleteFolder() {
+    if (!deleteTarget) return;
+    deleteFolderMutation.mutate(deleteTarget.id);
   }
 
   return (
@@ -411,6 +450,46 @@ export function LibraryView() {
                   </Button>
                 </DialogFooter>
               </form>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={deleteOpen}
+            onOpenChange={(nextOpen) => {
+              setDeleteOpen(nextOpen);
+              if (!nextOpen) setDeleteTarget(null);
+            }}
+          >
+            <DialogContent className="rounded-3xl p-6 sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="text-3xl font-semibold tracking-[-0.04em]">
+                  Delete Stack
+                </DialogTitle>
+                <DialogDescription>
+                  Delete “{deleteTarget?.name}”? This cannot be undone. Stacks
+                  with books or child stacks must be emptied first.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="mt-6">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setDeleteOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={deleteFolderMutation.isPending}
+                  onClick={deleteFolder}
+                >
+                  {deleteFolderMutation.isPending && (
+                    <LoaderCircle className="animate-spin" />
+                  )}
+                  Delete Stack
+                </Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
 
@@ -609,6 +688,13 @@ export function LibraryView() {
                   <DropdownMenuItem onClick={() => openRename(folder)}>
                     <Pencil />
                     Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => openDelete(folder)}
+                  >
+                    <Trash2 />
+                    Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
