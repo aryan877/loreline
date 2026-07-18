@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -14,7 +15,7 @@ import {
   uuid,
   vector,
 } from "drizzle-orm/pg-core";
-import type { HighlightRect, Pointer } from "@loreline/contracts/domain/reader";
+import type { HighlightRect } from "@loreline/contracts/domain/reader";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -102,8 +103,12 @@ export const bookStatus = pgEnum("book_status", [
   "ready",
   "failed",
 ]);
-export const messageRole = pgEnum("message_role", ["user", "assistant"]);
-
+export const bookIndexingStatus = pgEnum("book_indexing_status", [
+  "pending",
+  "indexing",
+  "ready",
+  "failed",
+]);
 export const books = pgTable(
   "books",
   {
@@ -119,6 +124,18 @@ export const books = pgTable(
     fileSize: bigint("file_size", { mode: "number" }).notNull(),
     pageCount: integer("page_count").notNull().default(1),
     status: bookStatus("status").notNull().default("processing"),
+    indexingStatus: bookIndexingStatus("indexing_status")
+      .notNull()
+      .default("pending"),
+    totalChunks: integer("total_chunks").notNull().default(0),
+    indexedChunks: integer("indexed_chunks").notNull().default(0),
+    indexingAttempts: integer("indexing_attempts").notNull().default(0),
+    indexingError: text("indexing_error"),
+    indexingUpdatedAt: timestamp("indexing_updated_at", {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
     lastPage: integer("last_page").notNull().default(1),
     progress: real("progress").notNull().default(0),
     errorMessage: text("error_message"),
@@ -134,10 +151,16 @@ export const books = pgTable(
   },
   (table) => [
     index("books_user_recent_idx").on(table.userId, table.lastOpenedAt),
+    index("books_indexing_queue_idx")
+      .on(table.indexingStatus, table.indexingUpdatedAt)
+      .where(sql`${table.status} = 'ready' and ${table.indexingStatus} <> 'ready'`),
   ],
 );
 
 export const BOOK_EMBEDDING_DIMENSIONS = 1536;
+const tsvector = customType<{ data: string }>({
+  dataType: () => "tsvector",
+});
 
 export const bookChunks = pgTable(
   "book_chunks",
@@ -152,63 +175,20 @@ export const bookChunks = pgTable(
     pageStart: integer("page_start").notNull(),
     pageEnd: integer("page_end").notNull(),
     content: text("content").notNull(),
+    searchVector: tsvector("search_vector").generatedAlwaysAs(
+      sql`to_tsvector('english', coalesce("content", ''))`,
+    ),
     embedding: vector("embedding", { dimensions: BOOK_EMBEDDING_DIMENSIONS }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [
-    index("book_chunks_book_idx").on(table.bookId),
-    index("book_chunks_embedding_idx").using(
-      "hnsw",
-      table.embedding.op("vector_cosine_ops"),
-    ),
-  ],
-);
-
-export const conversations = pgTable(
-  "conversations",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    bookId: uuid("book_id")
-      .notNull()
-      .references(() => books.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    title: text("title").notNull().default("Reading conversation"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    index("conversations_book_user_idx").on(table.bookId, table.userId),
-  ],
-);
-
-export const messages = pgTable(
-  "messages",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    conversationId: uuid("conversation_id")
-      .notNull()
-      .references(() => conversations.id, { onDelete: "cascade" }),
-    role: messageRole("role").notNull(),
-    content: text("content").notNull(),
-    page: integer("page"),
-    pointer: jsonb("pointer").$type<Pointer>(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    index("messages_conversation_idx").on(
-      table.conversationId,
-      table.createdAt,
-    ),
+    index("book_chunks_book_user_idx").on(table.bookId, table.userId),
+    index("book_chunks_search_idx").using("gin", table.searchVector),
+    index("book_chunks_embedding_idx")
+      .using("hnsw", table.embedding.op("vector_cosine_ops"))
+      .where(sql`${table.embedding} is not null`),
   ],
 );
 
@@ -284,7 +264,6 @@ export const bookmarks = pgTable(
 
 export const bookRelations = relations(books, ({ many }) => ({
   chunks: many(bookChunks),
-  conversations: many(conversations),
   illustrations: many(illustrations),
   highlights: many(highlights),
   bookmarks: many(bookmarks),

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type InfiniteData,
   useInfiniteQuery,
   useMutation,
   useQueryClient,
@@ -9,10 +10,17 @@ import { formatDistanceToNow } from "date-fns";
 import {
   ArrowRight,
   BookOpen,
+  Check,
+  CircleAlert,
+  CloudUpload,
+  Database,
   FileText,
   LoaderCircle,
   Plus,
+  RefreshCw,
+  ScanText,
   Search,
+  Sparkles,
   UploadCloud,
 } from "lucide-react";
 import Link from "next/link";
@@ -36,11 +44,15 @@ import { toUserMessage, UserFacingError } from "@/lib/errors";
 import { showErrorToast } from "@/lib/toast-error";
 import {
   type BeginBookUploadResponse,
+  type BookListItem,
   MAX_BOOK_FILE_SIZE,
   MAX_BOOK_FILE_SIZE_LABEL,
   type BooksPageResponse,
+  type RetryBookIndexResponse,
   type UploadBookResponse,
 } from "@loreline/contracts/books";
+
+type UploadStage = "idle" | "creating" | "uploading" | "extracting";
 
 async function getBooks(cursor?: string | null): Promise<BooksPageResponse> {
   const params = new URLSearchParams({ limit: "12" });
@@ -77,17 +89,166 @@ function formatFileSize(bytes: number) {
   return `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
 }
 
+function indexingPercent(book: BookListItem) {
+  if (book.indexingStatus === "ready") return 100;
+  if (book.totalChunks === 0) return 0;
+  return Math.round((book.indexedChunks / book.totalChunks) * 100);
+}
+
+function IndexingState({ book }: { book: BookListItem }) {
+  if (book.status !== "ready") {
+    return (
+      <div className="mt-3 rounded-xl border bg-card px-3 py-2.5">
+        <div className="flex items-center gap-2 text-xs font-medium">
+          {book.status === "processing" ? (
+            <LoaderCircle className="size-3.5 animate-spin text-brand-ink" />
+          ) : (
+            <CircleAlert className="size-3.5 text-destructive" />
+          )}
+          {book.status === "processing"
+            ? "PDF preparation paused"
+            : "PDF needs attention"}
+        </div>
+        <p className="mt-1 text-[0.7rem] leading-relaxed text-muted-foreground">
+          {book.errorMessage ??
+            "Resume from the private upload already in storage."}
+        </p>
+      </div>
+    );
+  }
+
+  if (book.indexingStatus === "ready") {
+    return (
+      <div className="mt-3 flex items-center gap-1.5 text-xs font-medium text-brand-ink">
+        <span className="grid size-5 place-items-center rounded-full bg-brand-soft">
+          <Check className="size-3" />
+        </span>
+        Grounded search ready
+      </div>
+    );
+  }
+
+  if (book.indexingStatus === "failed") {
+    return (
+      <div className="mt-3 rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2.5">
+        <div className="flex items-center gap-2 text-xs font-medium text-destructive">
+          <CircleAlert className="size-3.5" />
+          {book.totalChunks === 0
+            ? "No searchable text found"
+            : "Grounded search paused"}
+        </div>
+        <p className="mt-1 text-[0.7rem] leading-relaxed text-muted-foreground">
+          {book.indexingError ?? "The semantic index needs another try."}
+        </p>
+      </div>
+    );
+  }
+
+  const percent = indexingPercent(book);
+  return (
+    <div className="mt-3 rounded-xl border bg-card px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3 text-xs font-medium">
+        <span className="flex items-center gap-2">
+          <Sparkles className="size-3.5 text-brand-ink" />
+          Building grounded search
+        </span>
+        <span className="tabular-nums text-muted-foreground">{percent}%</span>
+      </div>
+      <Progress
+        value={percent}
+        aria-label={`Semantic indexing ${percent}% complete`}
+        className="mt-2"
+      />
+      <p className="mt-1.5 text-[0.68rem] text-muted-foreground">
+        {book.indexedChunks.toLocaleString()} of{" "}
+        {book.totalChunks.toLocaleString()} passages indexed
+      </p>
+    </div>
+  );
+}
+
+const uploadSteps = [
+  { stage: "creating", label: "Secure upload", icon: CloudUpload },
+  { stage: "uploading", label: "Transfer PDF", icon: Database },
+  { stage: "extracting", label: "Read every page", icon: ScanText },
+] as const;
+
+function UploadProgress({ stage }: { stage: Exclude<UploadStage, "idle"> }) {
+  const activeIndex = uploadSteps.findIndex((step) => step.stage === stage);
+  return (
+    <div className="rounded-2xl border bg-card p-4" aria-live="polite">
+      <div className="flex items-center justify-between gap-2">
+        {uploadSteps.map((step, index) => {
+          const Icon = step.icon;
+          const complete = index < activeIndex;
+          const active = index === activeIndex;
+          return (
+            <div key={step.stage} className="flex min-w-0 flex-1 items-center">
+              <div className="min-w-0 text-center">
+                <span
+                  className={`mx-auto grid size-8 place-items-center rounded-full border transition-colors ${
+                    complete || active
+                      ? "border-brand-ink/20 bg-brand-soft text-brand-ink"
+                      : "bg-background text-muted-foreground"
+                  }`}
+                >
+                  {complete ? (
+                    <Check className="size-4" />
+                  ) : active ? (
+                    <LoaderCircle className="size-4 animate-spin" />
+                  ) : (
+                    <Icon className="size-4" />
+                  )}
+                </span>
+                <span className="mt-2 block truncate text-[0.68rem] font-medium">
+                  {step.label}
+                </span>
+              </div>
+              {index < uploadSteps.length - 1 && (
+                <span
+                  className={`mx-2 h-px flex-1 ${
+                    index < activeIndex ? "bg-brand-ink/35" : "bg-border"
+                  }`}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-4 text-center text-xs leading-relaxed text-muted-foreground">
+        {stage === "extracting"
+          ? "The PDF is safely stored. Loreline is extracting every page now; semantic indexing continues visibly in your library."
+          : "Your PDF goes directly to private object storage and never passes through the web server."}
+      </p>
+    </div>
+  );
+}
+
 export function LibraryView() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadStage, setUploadStage] = useState<UploadStage>("idle");
   const inputRef = useRef<HTMLInputElement>(null);
   const booksQuery = useInfiniteQuery({
     queryKey: ["books"],
     queryFn: ({ pageParam }) => getBooks(pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    refetchInterval: (query) => {
+      const data = query.state.data as
+        | InfiniteData<BooksPageResponse>
+        | undefined;
+      const hasActiveWork = data?.pages.some((page) =>
+        page.books.some(
+          (book) =>
+            book.indexingStatus === "pending" ||
+            book.indexingStatus === "indexing",
+        ),
+      );
+      return hasActiveWork ? 2_000 : false;
+    },
   });
   const uploadMutation = useMutation({
     mutationFn: async ({
@@ -99,6 +260,7 @@ export function LibraryView() {
       title: string;
       author: string;
     }) => {
+      setUploadStage("creating");
       const upload = await apiJson<BeginBookUploadResponse>("/api/books", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -110,6 +272,7 @@ export function LibraryView() {
           author: author || undefined,
         }),
       });
+      setUploadStage("uploading");
       const transfer = await fetch(upload.uploadUrl, {
         method: "PUT",
         headers: upload.headers,
@@ -119,6 +282,7 @@ export function LibraryView() {
         throw new UserFacingError(
           "The PDF could not reach cloud storage. Please try again.",
         );
+      setUploadStage("extracting");
       return apiJson<UploadBookResponse>(
         `/api/books/${upload.bookId}/complete`,
         { method: "POST" },
@@ -127,7 +291,32 @@ export function LibraryView() {
     onSuccess: async () => {
       setOpen(false);
       setSelectedFile(null);
+      setUploadStage("idle");
       if (inputRef.current) inputRef.current.value = "";
+      await queryClient.invalidateQueries({ queryKey: ["books"] });
+    },
+    onError: () => setUploadStage("idle"),
+  });
+  const retryMutation = useMutation({
+    mutationFn: async ({
+      bookId,
+      kind,
+    }: {
+      bookId: string;
+      kind: "prepare" | "index";
+    }) => {
+      if (kind === "prepare") {
+        return apiJson<UploadBookResponse>(
+          `/api/books/${bookId}/complete`,
+          { method: "POST" },
+        );
+      }
+      return apiJson<RetryBookIndexResponse>(
+        `/api/books/${bookId}/index`,
+        { method: "POST" },
+      );
+    },
+    onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["books"] });
     },
   });
@@ -146,9 +335,11 @@ export function LibraryView() {
   }
 
   function changeDialogOpen(nextOpen: boolean) {
+    if (!nextOpen && uploadMutation.isPending) return;
     setOpen(nextOpen);
     if (!nextOpen) {
       setSelectedFile(null);
+      setUploadStage("idle");
       if (inputRef.current) inputRef.current.value = "";
     }
   }
@@ -211,8 +402,9 @@ export function LibraryView() {
                   Bring in a book
                 </DialogTitle>
                 <DialogDescription>
-                  Upload a PDF. Loreline extracts its text privately and
-                  prepares optional semantic retrieval.
+                  Upload directly to private storage. Loreline reads every
+                  page, then builds the semantic index used for grounded voice
+                  answers.
                 </DialogDescription>
               </DialogHeader>
               <div className="mt-6 space-y-4">
@@ -253,6 +445,7 @@ export function LibraryView() {
                     type="file"
                     accept="application/pdf,.pdf"
                     required
+                    disabled={uploadMutation.isPending}
                     className="sr-only"
                     onChange={changeFile}
                   />
@@ -267,6 +460,7 @@ export function LibraryView() {
                       id="title"
                       name="title"
                       placeholder="Detected from filename"
+                      disabled={uploadMutation.isPending}
                     />
                   </div>
                   <div className="space-y-2">
@@ -278,9 +472,13 @@ export function LibraryView() {
                       id="author"
                       name="author"
                       placeholder="Author name"
+                      disabled={uploadMutation.isPending}
                     />
                   </div>
                 </div>
+                {uploadStage !== "idle" && (
+                  <UploadProgress stage={uploadStage} />
+                )}
               </div>
               <DialogFooter className="mt-6">
                 <Button
@@ -299,7 +497,11 @@ export function LibraryView() {
                     <LoaderCircle className="animate-spin" />
                   )}
                   {uploadMutation.isPending
-                    ? "Preparing book…"
+                    ? uploadStage === "creating"
+                      ? "Securing upload…"
+                      : uploadStage === "uploading"
+                        ? "Uploading PDF…"
+                        : "Reading every page…"
                     : "Add to library"}
                 </Button>
               </DialogFooter>
@@ -372,28 +574,83 @@ export function LibraryView() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-x-5 gap-y-10 py-10 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-            {filtered.map((book, index) => (
-              <Link
-                key={book.id}
-                href={`/library/${book.id}`}
-                className="group min-w-0"
-              >
-                <BookCover title={book.title} index={index} />
-                <div className="mt-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <h2 className="truncate font-semibold">{book.title}</h2>
-                    <ArrowRight className="mt-0.5 size-4 shrink-0 -translate-x-1 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
+            {filtered.map((book, index) => {
+              const canRead = book.status === "ready";
+              const canRetryIndex =
+                canRead &&
+                book.indexingStatus === "failed" &&
+                book.totalChunks > 0;
+              const retrying =
+                retryMutation.isPending &&
+                retryMutation.variables?.bookId === book.id;
+              return (
+                <article key={book.id} className="group min-w-0">
+                  {canRead ? (
+                    <Link
+                      href={`/library/${book.id}`}
+                      aria-label={`Read ${book.title}`}
+                    >
+                      <BookCover title={book.title} index={index} />
+                    </Link>
+                  ) : (
+                    <BookCover title={book.title} index={index} />
+                  )}
+                  <div className="mt-4">
+                    {canRead ? (
+                      <Link
+                        href={`/library/${book.id}`}
+                        className="flex items-start justify-between gap-2"
+                      >
+                        <h2 className="truncate font-semibold">{book.title}</h2>
+                        <ArrowRight className="mt-0.5 size-4 shrink-0 -translate-x-1 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
+                      </Link>
+                    ) : (
+                      <h2 className="truncate font-semibold">{book.title}</h2>
+                    )}
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {book.author ||
+                        (canRead
+                          ? `${book.pageCount} pages`
+                          : formatFileSize(book.fileSize))}{" "}
+                      ·{" "}
+                      {formatDistanceToNow(new Date(book.lastOpenedAt), {
+                        addSuffix: true,
+                      })}
+                    </p>
+                    {canRead && (
+                      <Progress
+                        value={book.progress * 100}
+                        aria-label={`Reading progress for ${book.title}`}
+                        className="mt-3 h-1"
+                      />
+                    )}
+                    <IndexingState book={book} />
+                    {(!canRead || canRetryIndex) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="mt-3 w-full"
+                        disabled={retrying}
+                        onClick={() =>
+                          retryMutation.mutate({
+                            bookId: book.id,
+                            kind: canRead ? "index" : "prepare",
+                          })
+                        }
+                      >
+                        {retrying ? (
+                          <LoaderCircle className="animate-spin" />
+                        ) : (
+                          <RefreshCw />
+                        )}
+                        {canRead ? "Retry search index" : "Resume preparation"}
+                      </Button>
+                    )}
                   </div>
-                  <p className="mt-1 truncate text-xs text-muted-foreground">
-                    {book.author || `${book.pageCount} pages`} ·{" "}
-                    {formatDistanceToNow(new Date(book.lastOpenedAt), {
-                      addSuffix: true,
-                    })}
-                  </p>
-                  <Progress value={book.progress * 100} className="mt-3 h-1" />
-                </div>
-              </Link>
-            ))}
+                </article>
+              );
+            })}
           </div>
           {booksQuery.hasNextPage && (
             <div className="flex justify-center">

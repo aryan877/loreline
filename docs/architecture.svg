@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="780" viewBox="0 0 1280 780" role="img" aria-labelledby="title desc">
+  <title id="title">Loreline system architecture</title>
+  <desc id="desc">Next.js web application talks through a bounded gateway to a standalone Effect HTTP server. Shared contracts and database packages sit below. Postgres, Redis Streams, Cloudflare R2, OpenAI Realtime, and OpenRouter are external runtime services.</desc>
+  <defs>
+    <style>
+      .title{font:700 30px Inter,system-ui,sans-serif;fill:#17170f}.subtitle{font:400 15px Inter,system-ui,sans-serif;fill:#666653}.heading{font:700 18px Inter,system-ui,sans-serif;fill:#17170f}.body{font:400 14px Inter,system-ui,sans-serif;fill:#454536}.small{font:600 12px Inter,system-ui,sans-serif;fill:#666653;letter-spacing:.06em}.box{fill:#fffef5;stroke:#c9c8ae;stroke-width:2}.web{fill:#f1f0d4}.server{fill:#e9f0dc}.shared{fill:#f6e6ef}.infra{fill:#f4f3e8}.arrow{stroke:#77775f;stroke-width:2.2;fill:none;marker-end:url(#arrow)}.dash{stroke-dasharray:7 7}.lane{fill:none;stroke:#dedcc7;stroke-width:2}.label{fill:#e7e62d;stroke:#aaa91d;stroke-width:1}.labelText{font:700 12px Inter,system-ui,sans-serif;fill:#292914}.boundary{fill:none;stroke:#b2b099;stroke-width:2;stroke-dasharray:10 8}
+    </style>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#77775f"/></marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#242414" flood-opacity=".09"/></filter>
+  </defs>
+  <rect width="1280" height="780" rx="28" fill="#f8f7ed"/>
+  <text x="64" y="62" class="title">Loreline architecture</text>
+  <text x="64" y="88" class="subtitle">Framework boundaries are explicit: Next.js is web-only; the API and workers run on Effect + Node.</text>
+
+  <rect x="40" y="112" width="1200" height="430" rx="24" class="boundary"/>
+  <rect x="62" y="96" width="132" height="28" rx="14" class="label"/>
+  <text x="128" y="115" text-anchor="middle" class="labelText">LORELINE RUNTIME</text>
+
+  <g filter="url(#shadow)">
+    <rect x="78" y="156" width="330" height="322" rx="22" class="box web"/>
+    <rect x="475" y="156" width="330" height="322" rx="22" class="box server"/>
+    <rect x="872" y="156" width="330" height="322" rx="22" class="box shared"/>
+  </g>
+
+  <text x="106" y="194" class="small">APPS/WEB · PORT 3000</text>
+  <text x="106" y="226" class="heading">Next.js browser experience</text>
+  <text x="106" y="259" class="body">• App Router UI and Better Auth screens</text>
+  <text x="106" y="287" class="body">• PDF.js canvas + exact text layer</text>
+  <text x="106" y="315" class="body">• TanStack Query server state</text>
+  <text x="106" y="343" class="body">• WebRTC realtime voice session</text>
+  <text x="106" y="371" class="body">• Browser-side reader tools</text>
+  <rect x="106" y="398" width="274" height="52" rx="13" fill="#fffef5" stroke="#c9c8ae"/>
+  <text x="243" y="420" text-anchor="middle" class="small">SAME-ORIGIN /API GATEWAY</text>
+  <text x="243" y="440" text-anchor="middle" class="body">2 MB cap · rejects PDF bodies</text>
+
+  <text x="503" y="194" class="small">APPS/SERVER · PORT 3001</text>
+  <text x="503" y="226" class="heading">Effect HTTP + supervised worker</text>
+  <text x="503" y="259" class="body">• @effect/platform-node router</text>
+  <text x="503" y="287" class="body">• Better Auth + ownership checks</text>
+  <text x="503" y="315" class="body">• Feature modules and Zod boundaries</text>
+  <text x="503" y="343" class="body">• R2 signing and PDF validation</text>
+  <text x="503" y="371" class="body">• Hybrid FTS + vector retrieval</text>
+  <rect x="503" y="398" width="274" height="52" rx="13" fill="#fffef5" stroke="#c9c8ae"/>
+  <text x="640" y="420" text-anchor="middle" class="small">SCOPED INDEX WORKER</text>
+  <text x="640" y="440" text-anchor="middle" class="body">Redis group · lease · crash recovery</text>
+
+  <text x="900" y="194" class="small">SHARED WORKSPACE PACKAGES</text>
+  <text x="900" y="226" class="heading">One source of truth</text>
+  <rect x="900" y="252" width="274" height="78" rx="14" fill="#fffef5" stroke="#c9c8ae"/>
+  <text x="920" y="278" class="small">PACKAGES/CONTRACTS</text>
+  <text x="920" y="304" class="body">Zod API contracts, limits, domain types</text>
+  <rect x="900" y="348" width="274" height="102" rx="14" fill="#fffef5" stroke="#c9c8ae"/>
+  <text x="920" y="374" class="small">PACKAGES/DATABASE</text>
+  <text x="920" y="400" class="body">Drizzle schema + clean baseline migration</text>
+  <text x="920" y="426" class="body">pgvector, FTS, ownership indexes</text>
+
+  <path d="M408 310H475" class="arrow"/>
+  <text x="442" y="299" text-anchor="middle" class="small">JSON</text>
+  <path d="M805 276H872" class="arrow dash"/>
+  <path d="M872 362H805" class="arrow dash"/>
+
+  <text x="64" y="590" class="small">EXTERNAL STATE AND MODEL PROVIDERS</text>
+  <g filter="url(#shadow)">
+    <rect x="64" y="614" width="210" height="106" rx="18" class="box infra"/>
+    <rect x="300" y="614" width="210" height="106" rx="18" class="box infra"/>
+    <rect x="536" y="614" width="210" height="106" rx="18" class="box infra"/>
+    <rect x="772" y="614" width="210" height="106" rx="18" class="box infra"/>
+    <rect x="1008" y="614" width="210" height="106" rx="18" class="box infra"/>
+  </g>
+  <text x="169" y="650" text-anchor="middle" class="heading">Postgres 17</text>
+  <text x="169" y="678" text-anchor="middle" class="body">Drizzle · FTS · pgvector</text>
+  <text x="169" y="699" text-anchor="middle" class="body">authoritative progress</text>
+  <text x="405" y="650" text-anchor="middle" class="heading">Redis 7.4</text>
+  <text x="405" y="678" text-anchor="middle" class="body">limits · auth cache</text>
+  <text x="405" y="699" text-anchor="middle" class="body">durable index stream</text>
+  <text x="641" y="650" text-anchor="middle" class="heading">Cloudflare R2</text>
+  <text x="641" y="678" text-anchor="middle" class="body">private PDFs + visuals</text>
+  <text x="641" y="699" text-anchor="middle" class="body">signed direct uploads</text>
+  <text x="877" y="650" text-anchor="middle" class="heading">OpenAI</text>
+  <text x="877" y="678" text-anchor="middle" class="body">Realtime voice only</text>
+  <text x="877" y="699" text-anchor="middle" class="body">ephemeral WebRTC key</text>
+  <text x="1113" y="650" text-anchor="middle" class="heading">OpenRouter</text>
+  <text x="1113" y="678" text-anchor="middle" class="body">embeddings · images</text>
+  <text x="1113" y="699" text-anchor="middle" class="body">long-session compaction</text>
+
+  <path d="M560 478L210 614" class="arrow"/>
+  <path d="M600 478L420 614" class="arrow"/>
+  <path d="M650 478L638 614" class="arrow"/>
+  <path d="M703 478L865 614" class="arrow"/>
+  <path d="M746 478L1095 614" class="arrow"/>
+  <path d="M274 478L610 614" class="arrow dash"/>
+</svg>

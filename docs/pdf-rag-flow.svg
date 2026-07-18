@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">Loreline PDF ingestion and retrieval flow</title>
+  <desc id="desc">A PDF uploads directly from the browser to R2. The Effect server validates and extracts it, stores page-accurate chunks, enqueues a Redis Stream job, indexes in batches, and combines full text and semantic search. Redis pending entries and database leases recover crashes.</desc>
+  <defs>
+    <style>
+      .title{font:700 30px Inter,system-ui,sans-serif;fill:#17170f}.subtitle{font:400 15px Inter,system-ui,sans-serif;fill:#666653}.heading{font:700 16px Inter,system-ui,sans-serif;fill:#17170f}.body{font:400 13px Inter,system-ui,sans-serif;fill:#4c4c3c}.small{font:700 11px Inter,system-ui,sans-serif;fill:#666653;letter-spacing:.08em}.box{fill:#fffef5;stroke:#c7c5aa;stroke-width:2}.accent{fill:#eef0b7}.green{fill:#e4efdb}.pink{fill:#f5e3ed}.muted{fill:#f1f0e5}.arrow{stroke:#74745d;stroke-width:2.2;fill:none;marker-end:url(#arrow)}.retry{stroke:#be5c8a;stroke-width:2.2;fill:none;stroke-dasharray:7 6;marker-end:url(#pinkArrow)}.stage{fill:#e7e62d;stroke:#aaa91d}.stageText{font:700 12px Inter,system-ui,sans-serif;fill:#282811}
+    </style>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#74745d"/></marker>
+    <marker id="pinkArrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#be5c8a"/></marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#242414" flood-opacity=".08"/></filter>
+  </defs>
+  <rect width="1280" height="760" rx="28" fill="#f8f7ed"/>
+  <text x="56" y="58" class="title">PDF ingestion and grounded retrieval</text>
+  <text x="56" y="84" class="subtitle">The request path makes a book readable quickly; durable semantic indexing continues independently.</text>
+
+  <rect x="56" y="116" width="94" height="28" rx="14" class="stage"/><text x="103" y="135" text-anchor="middle" class="stageText">UPLOAD</text>
+  <g filter="url(#shadow)">
+    <rect x="56" y="164" width="220" height="126" rx="18" class="box accent"/>
+    <rect x="328" y="164" width="220" height="126" rx="18" class="box"/>
+    <rect x="600" y="164" width="220" height="126" rx="18" class="box green"/>
+    <rect x="872" y="164" width="352" height="126" rx="18" class="box"/>
+  </g>
+  <text x="80" y="196" class="small">1 · BROWSER</text><text x="80" y="224" class="heading">Request signed upload</text><text x="80" y="248" class="body">Name, MIME, exact byte size</text><text x="80" y="270" class="body">No PDF body enters Next.js</text>
+  <text x="352" y="196" class="small">2 · EFFECT API</text><text x="352" y="224" class="heading">Authorize and sign</text><text x="352" y="248" class="body">50 MB limit · account key</text><text x="352" y="270" class="body">10-minute S3-compatible URL</text>
+  <text x="624" y="196" class="small">3 · DIRECT PUT</text><text x="624" y="224" class="heading">Browser → private R2</text><text x="624" y="248" class="body">Cloud storage receives bytes</text><text x="624" y="270" class="body">Credentials never reach browser</text>
+  <text x="896" y="196" class="small">4 · COMPLETE</text><text x="896" y="224" class="heading">Validate, parse, and persist</text><text x="896" y="248" class="body">Exact size · %PDF magic bytes · page extraction</text><text x="896" y="270" class="body">Sentence-aware 2.6k-char chunks with page metadata</text>
+  <path d="M276 226H328" class="arrow"/><path d="M548 226H600" class="arrow"/><path d="M820 226H872" class="arrow"/>
+
+  <rect x="56" y="336" width="102" height="28" rx="14" class="stage"/><text x="107" y="355" text-anchor="middle" class="stageText">INDEX</text>
+  <g filter="url(#shadow)">
+    <rect x="56" y="384" width="242" height="142" rx="18" class="box pink"/>
+    <rect x="354" y="384" width="242" height="142" rx="18" class="box"/>
+    <rect x="652" y="384" width="242" height="142" rx="18" class="box green"/>
+    <rect x="950" y="384" width="274" height="142" rx="18" class="box"/>
+  </g>
+  <text x="80" y="416" class="small">5 · REDIS STREAM</text><text x="80" y="444" class="heading">XADD durable job</text><text x="80" y="468" class="body">bookId + userId entry</text><text x="80" y="490" class="body">AOF persistence · no eviction</text><text x="80" y="512" class="body">Request returns; book is readable</text>
+  <text x="378" y="416" class="small">6 · CONSUMER GROUP</text><text x="378" y="444" class="heading">One worker claims entry</text><text x="378" y="468" class="body">Horizontal distribution</text><text x="378" y="490" class="body">Pending list until XACK</text><text x="378" y="512" class="body">Scoped to Effect lifecycle</text>
+  <text x="676" y="416" class="small">7 · EMBEDDING BATCHES</text><text x="676" y="444" class="heading">16 chunks per request</text><text x="676" y="468" class="body">Bounded retries with backoff</text><text x="676" y="490" class="body">Progress committed per batch</text><text x="676" y="512" class="body">Resume skips stored vectors</text>
+  <text x="974" y="416" class="small">8 · POSTGRES</text><text x="974" y="444" class="heading">Grounded search ready</text><text x="974" y="468" class="body">GIN full-text index is immediate</text><text x="974" y="490" class="body">HNSW cosine index after embeddings</text><text x="974" y="512" class="body">Book stores authoritative progress</text>
+  <path d="M177 290V384" class="arrow"/><path d="M298 455H354" class="arrow"/><path d="M596 455H652" class="arrow"/><path d="M894 455H950" class="arrow"/>
+
+  <path d="M475 526V590H177V526" class="retry"/>
+  <rect x="238" y="560" width="180" height="54" rx="14" fill="#fff4f8" stroke="#be5c8a"/>
+  <text x="328" y="582" text-anchor="middle" class="small">CRASH RECOVERY</text>
+  <text x="328" y="602" text-anchor="middle" class="body">XAUTOCLAIM after 15 min</text>
+  <path d="M773 526V646H475V526" class="retry"/>
+  <rect x="537" y="616" width="176" height="54" rx="14" fill="#fff4f8" stroke="#be5c8a"/>
+  <text x="625" y="638" text-anchor="middle" class="small">DUPLICATE SAFETY</text>
+  <text x="625" y="658" text-anchor="middle" class="body">DB lease + null-vector resume</text>
+
+  <rect x="842" y="586" width="382" height="112" rx="18" class="box muted"/>
+  <text x="866" y="618" class="small">QUESTION-TIME RETRIEVAL</text>
+  <text x="866" y="646" class="heading">Hybrid ranking, graceful degradation</text>
+  <text x="866" y="670" class="body">Postgres FTS is always available; semantic candidates join when ready.</text>
+  <text x="866" y="690" class="body">If the model provider fails, answers still use lexical book passages.</text>
+  <path d="M1087 526V586" class="arrow"/>
+</svg>

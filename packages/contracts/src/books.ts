@@ -12,6 +12,25 @@ const progressSchema = z.number().min(0).max(1);
 
 export const bookStatusSchema = z.enum(["processing", "ready", "failed"]);
 export type BookStatus = z.infer<typeof bookStatusSchema>;
+export const bookIndexingStatusSchema = z.enum([
+  "pending",
+  "indexing",
+  "ready",
+  "failed",
+]);
+export type BookIndexingStatus = z.infer<typeof bookIndexingStatusSchema>;
+
+const bookIndexingFields = {
+  indexingStatus: bookIndexingStatusSchema,
+  totalChunks: z.number().int().nonnegative(),
+  indexedChunks: z.number().int().nonnegative(),
+  indexingError: z.string().nullable(),
+};
+
+const bookPreparationFields = {
+  status: bookStatusSchema,
+  errorMessage: z.string().nullable(),
+};
 
 export const beginBookUploadInputSchema = z.object({
   fileName: z
@@ -47,7 +66,8 @@ export const bookListItemSchema = z.object({
   author: authorSchema,
   fileSize: fileSizeSchema,
   pageCount: pageSchema,
-  status: bookStatusSchema,
+  ...bookPreparationFields,
+  ...bookIndexingFields,
   lastPage: pageSchema,
   progress: progressSchema,
   lastOpenedAt: z.iso.datetime(),
@@ -67,7 +87,8 @@ export const readerBookSchema = z.object({
   originalFilename: z.string(),
   fileSize: fileSizeSchema,
   pageCount: pageSchema,
-  status: bookStatusSchema,
+  ...bookPreparationFields,
+  ...bookIndexingFields,
   lastPage: pageSchema,
   progress: progressSchema,
 });
@@ -84,11 +105,29 @@ export const uploadBookResponseSchema = z.object({
       author: true,
       pageCount: true,
       status: true,
+      errorMessage: true,
+      indexingStatus: true,
+      totalChunks: true,
+      indexedChunks: true,
+      indexingError: true,
     })
     .extend({ createdAt: z.iso.datetime() }),
 });
 export type UploadBookResponse = z.infer<
   typeof uploadBookResponseSchema
+>;
+
+export const retryBookIndexResponseSchema = z.object({
+  book: readerBookSchema.pick({
+    id: true,
+    indexingStatus: true,
+    totalChunks: true,
+    indexedChunks: true,
+    indexingError: true,
+  }),
+});
+export type RetryBookIndexResponse = z.infer<
+  typeof retryBookIndexResponseSchema
 >;
 
 export const bookProgressInputSchema = z.object({

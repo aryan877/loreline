@@ -38,8 +38,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
 
-FROM runner AS server-runner
-ENV PORT=3001
-COPY --from=builder --chown=nextjs:nodejs /app/apps/server/.next/standalone ./
+FROM deps AS server-runner
+ENV NODE_ENV=production \
+    PORT=3001 \
+    HOSTNAME=0.0.0.0
+COPY --chown=node:node . .
+USER node
 EXPOSE 3001
-CMD ["node", "apps/server/server.js"]
+CMD ["npm", "run", "start", "--workspace=@loreline/server"]
