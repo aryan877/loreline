@@ -6,6 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { DragDropProvider } from "@dnd-kit/react";
 import { formatDistanceToNow } from "date-fns";
 import {
   ArrowRight,
@@ -479,7 +480,8 @@ export function LibraryView() {
   }
 
   return (
-    <main className="mx-auto max-w-[80rem] px-4 py-10 sm:px-0 sm:py-16">
+    <DragDropProvider>
+      <main className="mx-auto max-w-[80rem] px-4 py-10 sm:px-0 sm:py-16">
       <div className="flex flex-col justify-between gap-7 sm:flex-row sm:items-end">
         <div>
           <p className="text-sm font-semibold text-brand-ink">
@@ -1149,6 +1151,7 @@ export function LibraryView() {
           )}
         </>
       )}
-    </main>
+      </main>
+    </DragDropProvider>
   );
 }
