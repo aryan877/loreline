@@ -643,6 +643,7 @@ export function LibraryView() {
                 <Button
                   type="button"
                   variant="ghost"
+                  className="cursor-pointer"
                   onClick={() => setDeleteOpen(false)}
                 >
                   Cancel
@@ -650,6 +651,7 @@ export function LibraryView() {
                 <Button
                   type="button"
                   variant="destructive"
+                  className="cursor-pointer"
                   disabled={deleteFolderMutation.isPending}
                   onClick={deleteFolder}
                 >
@@ -683,6 +685,7 @@ export function LibraryView() {
                 <Button
                   type="button"
                   variant="ghost"
+                  className="cursor-pointer"
                   onClick={() => setDeleteBookOpen(false)}
                 >
                   Cancel
@@ -690,6 +693,7 @@ export function LibraryView() {
                 <Button
                   type="button"
                   variant="destructive"
+                  className="cursor-pointer"
                   disabled={deleteBookMutation.isPending}
                   onClick={deleteBook}
                 >
@@ -1080,6 +1084,7 @@ export function LibraryView() {
                       size="icon-sm"
                       variant="ghost"
                       aria-label={`Actions for ${folder.name}`}
+                      className="cursor-pointer"
                     />
                   }
                 >
@@ -1185,7 +1190,7 @@ export function LibraryView() {
                         size="icon-sm"
                         variant="ghost"
                         aria-label={`Actions for ${book.title}`}
-                        className="absolute top-2 right-2 bg-card/80 opacity-0 backdrop-blur-sm group-hover:opacity-100 focus-visible:opacity-100"
+                        className="absolute top-2 right-2 cursor-pointer bg-card/80 opacity-0 backdrop-blur-sm group-hover:opacity-100 focus-visible:opacity-100"
                       />
                     }
                   >
