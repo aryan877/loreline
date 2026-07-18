@@ -38,7 +38,7 @@ const pdfOptions = {
 type PdfReaderProps = {
   fileUrl: string;
   page: number;
-  width: number;
+  viewport: { width: number; height: number };
   zoom: number;
   highlights: Highlight[];
   activeFocus: ReaderFocus | null;
@@ -120,7 +120,7 @@ function HighlightLayer({
 export default function PdfReader({
   fileUrl,
   page,
-  width,
+  viewport,
   zoom,
   highlights,
   activeFocus,
@@ -140,8 +140,25 @@ export default function PdfReader({
     page: number;
   } | null>(null);
   const [textLayerPage, setTextLayerPage] = useState<number | null>(null);
+  const [pageSize, setPageSize] = useState<{
+    fileUrl: string;
+    page: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const hasError =
     failedPage?.fileUrl === fileUrl && failedPage.page === page;
+  const currentPageSize =
+    pageSize?.fileUrl === fileUrl && pageSize.page === page ? pageSize : null;
+  const aspectRatio = currentPageSize
+    ? currentPageSize.width / currentPageSize.height
+    : 1 / Math.SQRT2;
+  const fittedWidth = Math.min(
+    viewport.width,
+    viewport.height * aspectRatio,
+  );
+  const renderWidth = Math.max(1, Math.floor(fittedWidth * zoom));
+  const renderHeight = Math.max(1, Math.floor(renderWidth / aspectRatio));
 
   const locatePassage = useCallback((passage: string) => {
     const pageNode = pageRef.current;
@@ -193,6 +210,28 @@ export default function PdfReader({
     onScreenshotChange(screenshot);
   }, [onScreenshotChange]);
 
+  const handlePageLoad = useCallback<
+    NonNullable<ComponentProps<typeof Page>["onLoadSuccess"]>
+  >(
+    (loadedPage) => {
+      const nextSize = {
+        fileUrl,
+        page,
+        width: loadedPage.originalWidth,
+        height: loadedPage.originalHeight,
+      };
+      setPageSize((current) =>
+        current?.fileUrl === nextSize.fileUrl &&
+        current.page === nextSize.page &&
+        current.width === nextSize.width &&
+        current.height === nextSize.height
+          ? current
+          : nextSize,
+      );
+    },
+    [fileUrl, page],
+  );
+
   const handleTextSuccess = useCallback<
     NonNullable<ComponentProps<typeof Page>["onGetTextSuccess"]>
   >(
@@ -213,7 +252,7 @@ export default function PdfReader({
   if (hasError)
     return (
       <div
-        style={{ width, minHeight: width * 1.3 }}
+        style={{ width: renderWidth, height: renderHeight }}
         className="grid place-items-center bg-reader-paper p-8"
       >
         <div className="max-w-sm text-center">
@@ -280,7 +319,7 @@ export default function PdfReader({
         options={pdfOptions}
         loading={
           <div
-            style={{ width, minHeight: width * 1.3 }}
+            style={{ width: renderWidth, height: renderHeight }}
             className="grid place-items-center bg-reader-paper"
           >
             <LoaderCircle className="size-5 animate-spin text-coral" />
@@ -295,8 +334,9 @@ export default function PdfReader({
       >
         <Page
           pageNumber={page}
-          width={width * zoom}
+          width={renderWidth}
           renderAnnotationLayer={false}
+          onLoadSuccess={handlePageLoad}
           onRenderError={loadError}
           onRenderSuccess={handlePageRender}
           onGetTextSuccess={handleTextSuccess}

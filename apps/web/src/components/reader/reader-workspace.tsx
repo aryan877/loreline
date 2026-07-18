@@ -751,7 +751,10 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const [boardItems, setBoardItems] = useState<BoardItem[]>([]);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const [pageWidth, setPageWidth] = useState(760);
+  const [viewportSize, setViewportSize] = useState({
+    width: 760,
+    height: 900,
+  });
   const [noteSelection, setNoteSelection] =
     useState<ReaderSelection | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
@@ -770,9 +773,17 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   useEffect(() => {
     const node = viewportRef.current;
     if (!node) return;
-    const observer = new ResizeObserver(([entry]) =>
-      setPageWidth(Math.min(820, Math.max(320, entry.contentRect.width - 48))),
-    );
+    const observer = new ResizeObserver(([entry]) => {
+      const next = {
+        width: Math.max(1, Math.floor(entry.contentRect.width)),
+        height: Math.max(1, Math.floor(entry.contentRect.height)),
+      };
+      setViewportSize((current) =>
+        current.width === next.width && current.height === next.height
+          ? current
+          : next,
+      );
+    });
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
@@ -1180,12 +1191,12 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
         <div className="relative min-h-0">
           <div
             ref={viewportRef}
-            className="scrollbar-none min-h-0 overflow-auto p-4 sm:p-6"
+            className="scrollbar-none h-full min-h-0 overflow-auto p-4 sm:p-6"
           >
             <PdfReader
               fileUrl={`/api/books/${bookId}/file`}
               page={page}
-              width={pageWidth}
+              viewport={viewportSize}
               zoom={zoom}
               highlights={pageHighlights}
               activeFocus={displayedFocus}
