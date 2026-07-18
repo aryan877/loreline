@@ -3,6 +3,7 @@
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
@@ -10,6 +11,7 @@ import {
   ArrowRight,
   BookOpen,
   FileText,
+  Folder as FolderIcon,
   LoaderCircle,
   Plus,
   Search,
@@ -41,11 +43,16 @@ import {
   type BooksPageResponse,
   type UploadBookResponse,
 } from "@loreline/contracts/books";
+import type { Folder } from "@loreline/contracts/folders";
 
 async function getBooks(cursor?: string | null): Promise<BooksPageResponse> {
   const params = new URLSearchParams({ limit: "12" });
   if (cursor) params.set("cursor", cursor);
   return apiJson<BooksPageResponse>(`/api/books?${params}`);
+}
+
+async function getTopLevelFolders(): Promise<{ folders: Folder[] }> {
+  return apiJson<{ folders: Folder[] }>("/api/folders");
 }
 
 function BookCover({ title, index }: { title: string; index: number }) {
@@ -76,6 +83,10 @@ export function LibraryView() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const foldersQuery = useQuery({
+    queryKey: ["folders", null],
+    queryFn: getTopLevelFolders,
+  });
   const booksQuery = useInfiniteQuery({
     queryKey: ["books"],
     queryFn: ({ pageParam }) => getBooks(pageParam),
@@ -127,6 +138,7 @@ export function LibraryView() {
     () => booksQuery.data?.pages.flatMap((page) => page.books) ?? [],
     [booksQuery.data],
   );
+  const folders = foldersQuery.data?.folders ?? [];
   const filtered = books.filter((book) =>
     `${book.title} ${book.author ?? ""}`
       .toLowerCase()
@@ -279,6 +291,48 @@ export function LibraryView() {
           {books.length} {books.length === 1 ? "book" : "books"}
         </Badge>
       </div>
+
+      {foldersQuery.isPending ? (
+        <div className="grid grid-cols-2 gap-3 py-6 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div
+              key={index}
+              className="h-[3.625rem] animate-pulse rounded-xl bg-muted"
+            />
+          ))}
+        </div>
+      ) : foldersQuery.isError ? (
+        <div className="flex items-center justify-between gap-3 py-4 text-sm text-muted-foreground">
+          <span className="truncate">
+            {toUserMessage(
+              foldersQuery.error,
+              "Loreline couldn’t load your folders. Please try again.",
+            )}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={foldersQuery.isFetching}
+            onClick={() => foldersQuery.refetch()}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : folders.length > 0 ? (
+        <div className="grid grid-cols-2 gap-3 py-6 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+          {folders.map((folder) => (
+            <div
+              key={folder.id}
+              className="flex min-w-0 items-center gap-3 rounded-xl border bg-card p-4"
+            >
+              <FolderIcon className="size-5 shrink-0 text-brand-ink" />
+              <span className="truncate text-sm font-semibold">
+                {folder.name}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {booksQuery.isPending ? (
         <div className="grid grid-cols-2 gap-5 py-10 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
