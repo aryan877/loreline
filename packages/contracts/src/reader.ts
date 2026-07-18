@@ -25,7 +25,6 @@ export type ReadingContext = {
   visibleText: string;
   selectedText: string;
   pointer: PointerContext;
-  screenshot: string | null;
   savedPassages: Array<{
     text: string;
     note: string | null;
@@ -56,6 +55,7 @@ export type ReaderControls = {
     text: string;
     note: string;
   }) => Promise<boolean>;
+  capturePageImage: (focus: PointerContext) => string | null;
   goToPage: (page: number) => boolean;
 };
 

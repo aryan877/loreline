@@ -272,7 +272,6 @@ type SideboardProps = {
   visibleText: string;
   selectedText: string;
   pointer: PointerContext;
-  screenshot: string | null;
   items: BoardItem[];
   setItems: React.Dispatch<React.SetStateAction<BoardItem[]>>;
   highlights: Highlight[];
@@ -294,7 +293,6 @@ function Sideboard({
   visibleText,
   selectedText,
   pointer,
-  screenshot,
   items,
   setItems,
   highlights,
@@ -322,7 +320,6 @@ function Sideboard({
       visibleText,
       selectedText,
       pointer,
-      screenshot,
       savedPassages: highlights
         .filter((highlight) => highlight.page === page)
         .map((highlight) => ({
@@ -330,16 +327,7 @@ function Sideboard({
           note: highlight.note,
         })),
     }),
-    [
-      book.id,
-      book.title,
-      page,
-      visibleText,
-      selectedText,
-      pointer,
-      screenshot,
-      highlights,
-    ],
+    [book.id, book.title, page, visibleText, selectedText, pointer, highlights],
   );
   const voice = useLorelineVoice(voiceContext, addBoardItem, readerControls);
   const voiceLabel =
@@ -713,8 +701,14 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     timeout: number;
   } | null>(null);
   const [visibleText, setVisibleText] = useState("");
-  const [screenshot, setScreenshot] = useState<string | null>(null);
   const [boardItems, setBoardItems] = useState<BoardItem[]>([]);
+  const pageCaptureRef = useRef<ReaderControls["capturePageImage"]>(() => null);
+  const setPageCapture = useCallback(
+    (capture: ReaderControls["capturePageImage"] | null) => {
+      pageCaptureRef.current = capture ?? (() => null);
+    },
+    [],
+  );
   const viewportRef = useRef<HTMLDivElement>(null);
   const [viewportSize, setViewportSize] = useState({
     width: 760,
@@ -946,7 +940,6 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
       setFocusRequest(null);
       setPointer(null);
       setVisibleText("");
-      setScreenshot(null);
     },
     [cancelPendingFocus, numPages],
   );
@@ -995,6 +988,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     () => ({
       focusPassage,
       savePassageNote,
+      capturePageImage: (focus) => pageCaptureRef.current(focus),
       goToPage: (nextPage) => {
         if (nextPage < 1 || nextPage > numPages) return false;
         go(nextPage);
@@ -1052,7 +1046,6 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
       visibleText={visibleText}
       selectedText={selection?.text ?? ""}
       pointer={pointer}
-      screenshot={screenshot}
       items={boardItems}
       setItems={setBoardItems}
       highlights={highlights}
@@ -1238,7 +1231,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
                 if (page > pages) setPage(pages);
               }}
               onVisibleTextChange={setVisibleText}
-              onScreenshotChange={setScreenshot}
+              onPageCaptureReady={setPageCapture}
               onPointerChange={setPointer}
               onSelectionChange={(nextSelection) => {
                 setSelection(nextSelection);

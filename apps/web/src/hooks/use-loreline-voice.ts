@@ -33,9 +33,7 @@ const REALTIME_COMPACTION_RATIO = 0.95;
 const realtimeUsageEventSchema = z.object({
   type: z.literal("response.done"),
   response: z.object({
-    usage: z
-      .object({ input_tokens: z.number().int().nonnegative() })
-      .nullish(),
+    usage: z.object({ input_tokens: z.number().int().nonnegative() }).nullish(),
   }),
 });
 
@@ -122,15 +120,13 @@ function pageInstructions(
   context: ReadingContext,
   memory: RealtimeMemory | null,
 ) {
-  const pointer = context.pointer
-    ? `Pointer: ${Math.round(context.pointer.x * 100)}% from the left, ${Math.round(context.pointer.y * 100)}% from the top${context.pointer.text ? `, over “${context.pointer.text}”` : ""}.`
-    : "No pointer is currently visible.";
   return [
     "You are Loreline, a calm, perceptive realtime reading companion.",
-    "The live page is primary truth. Start with the visible page image, extracted text, selected text, and pointer. Only call search_book when the question needs information outside this page or the visible context is genuinely insufficient.",
+    "The live page is primary truth. Start with extracted visible text and the reader's selected text. No page image is sent automatically. Call inspect_page only when the reader asks about a diagram, picture, visual layout, or refers to something with words like this, here, or under my cursor. The tool reads the current pointer at call time and attaches a bounded page image only when pixels are actually needed.",
+    "Do not call inspect_page merely because the page or pointer changed, and do not claim to see page pixels until the tool confirms that it attached an image. Only call search_book when the question needs information outside this page or the visible context is genuinely insufficient.",
     "Before quoting, explaining, or narrating a specific passage, call focus_passage with the exact words and page so the reader can see what you are discussing. Use save_highlight_note when the reader asks to keep a note attached to a passage. Use place_note only for a temporary freeform sideboard artifact. Use place_visual whenever an image, scene, analogy, map, or diagram would materially improve understanding.",
     "Use voice for conversation and spoken navigation. Do not begin continuous narration or turn pages automatically. Obey explicit spoken requests to move to the next or previous PDF page.",
-    `Book: “${context.title}”. Current page: ${context.page}. ${pointer}`,
+    `Book: “${context.title}”. Current page: ${context.page}.`,
     context.selectedText ? `Selected text: “${context.selectedText}”` : "",
     context.visibleText
       ? `Visible page text:\n${context.visibleText.slice(0, 12000)}`
@@ -160,6 +156,8 @@ export function useLorelineVoice(
   const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState("");
   const sessionRef = useRef<RealtimeSession | null>(null);
+  const connectionRef = useRef<Promise<RealtimeSession | null> | null>(null);
+  const connectionEpochRef = useRef(0);
   const contextRef = useRef(context);
   const boardRef = useRef(addBoardItem);
   const controlsRef = useRef(readerControls);
@@ -181,10 +179,52 @@ export function useLorelineVoice(
   }, [context, addBoardItem, readerControls]);
 
   const buildAgent = useCallback(() => {
+    const inspectPage = tool({
+      name: "inspect_page",
+      description:
+        "Read the reader's current pointer context or visually inspect the rendered PDF page. Use pointer scope for phrases like this, here, or under my cursor. If the pointer is over extracted text, the tool returns that text without sending pixels. If it is over non-text content, the tool attaches a focused crop. Use page scope for diagrams, pictures, page design, or layout questions; it attaches the full page. Never call this tool just because the pointer or page changed.",
+      parameters: z.object({
+        scope: z.enum(["pointer", "page"]),
+      }),
+      execute: async ({ scope }) => {
+        const current = contextRef.current;
+        const pointer = current.pointer;
+        const pointerSummary = pointer
+          ? `${Math.round(pointer.x * 100)}% from the left and ${Math.round(pointer.y * 100)}% from the top${pointer.text ? `, over “${pointer.text}”` : ""}`
+          : "not currently on the page";
+
+        if (scope === "pointer" && pointer?.text)
+          return `Current page: ${current.page}. The pointer is ${pointerSummary}. No image was attached because the exact text under the pointer is available.`;
+
+        const session = sessionRef.current;
+        if (!session || session.transport.status !== "connected")
+          return `Current page: ${current.page}. The pointer is ${pointerSummary}. A visual snapshot is unavailable because voice is not connected.`;
+
+        const image = controlsRef.current.capturePageImage(
+          scope === "pointer" ? pointer : null,
+        );
+        if (!image)
+          return `Current page: ${current.page}. The pointer is ${pointerSummary}. The rendered page image is not ready, so answer from the extracted text or ask the reader to try again.`;
+
+        try {
+          session.addImage(image, { triggerResponse: false });
+          return scope === "pointer"
+            ? `Attached a compressed visual crop centered on the pointer at ${pointerSummary} on page ${current.page}. Use that image and the live page text to answer.`
+            : `Attached a compressed full-page image for page ${current.page}. Use that image and the live page text to answer.`;
+        } catch (cause) {
+          console.error(
+            "Loreline could not attach the requested page image",
+            cause,
+          );
+          return `Current page: ${current.page}. The pointer is ${pointerSummary}. The visual snapshot could not be attached, so answer from extracted text or ask the reader to try again.`;
+        }
+      },
+    });
+
     const searchBook = tool({
       name: "search_book",
       description:
-        "Search other parts of the current book. Use only when the visible page, selection, pointer, and page image are insufficient.",
+        "Search other parts of the current book. Use only when the visible page, selection, and an on-demand page inspection are insufficient.",
       parameters: z.object({
         query: z.string().min(2).max(1000),
         reason: z.string().min(2).max(300),
@@ -328,6 +368,7 @@ export function useLorelineVoice(
       name: "Loreline",
       instructions: pageInstructions(contextRef.current, memoryRef.current),
       tools: [
+        inspectPage,
         searchBook,
         focusPassage,
         turnPage,
@@ -367,92 +408,126 @@ export function useLorelineVoice(
     [buildAgent, compactConversation],
   );
 
-  const connect = useCallback(async () => {
-    if (sessionRef.current) return sessionRef.current;
+  const connect = useCallback(() => {
+    if (sessionRef.current) return Promise.resolve(sessionRef.current);
+    if (connectionRef.current) return connectionRef.current;
+
+    const connectionEpoch = ++connectionEpochRef.current;
     setError("");
     setState("connecting");
-    try {
-      const token = await getRealtimeToken(contextRef.current.title);
-      const conversationBudget = realtimeConversationBudget(token.model);
-      const session = new RealtimeSession(buildAgent(), {
-        model: token.model,
-        transport: "webrtc",
-        workflowName: "Loreline reading companion",
-        config: {
-          providerData: {
-            truncation: {
-              type: "retention_ratio",
-              retention_ratio: 0.7,
-              token_limits: {
-                post_instructions: conversationBudget,
+    const connection = (async () => {
+      let session: RealtimeSession | null = null;
+      try {
+        const token = await getRealtimeToken(contextRef.current.title);
+        const conversationBudget = realtimeConversationBudget(token.model);
+        session = new RealtimeSession(buildAgent(), {
+          model: token.model,
+          transport: "webrtc",
+          workflowName: "Loreline reading companion",
+          config: {
+            providerData: {
+              truncation: {
+                type: "retention_ratio",
+                retention_ratio: 0.7,
+                token_limits: {
+                  post_instructions: conversationBudget,
+                },
               },
             },
           },
-        },
-      });
-      session.on("audio_start", () => setState("speaking"));
-      session.on("audio_stopped", () => setState("listening"));
-      session.on("audio_interrupted", () => setState("listening"));
-      session.on("transport_event", (event) => {
-        const parsed = realtimeUsageEventSchema.safeParse(event);
-        const inputTokens = parsed.success
-          ? (parsed.data.response.usage?.input_tokens ?? 0)
-          : 0;
-        if (inputTokens >= conversationBudget * REALTIME_COMPACTION_RATIO)
-          void compactSession(session);
-      });
-      session.on("error", () => {
-        const error = new UserFacingError(
-          "The voice connection was interrupted. Please reconnect.",
-        );
-        setError(error.message);
-        showErrorToast(error);
-        setState("error");
-      });
-      await session.connect({ apiKey: token.clientSecret });
-      sessionRef.current = session;
-      if (contextRef.current.screenshot)
-        session.addImage(contextRef.current.screenshot, {
-          triggerResponse: false,
         });
-      setState("listening");
-      return session;
-    } catch (cause) {
-      setError(toUserMessage(cause, "Loreline couldn’t connect voice."));
-      if (!(cause instanceof UserFacingError))
-        showErrorToast(cause, "Loreline couldn’t connect voice.");
-      setState("error");
-      return null;
-    }
+        const activeSession = session;
+        activeSession.on("audio_start", () => setState("speaking"));
+        activeSession.on("audio_stopped", () => setState("listening"));
+        activeSession.on("audio_interrupted", () => setState("listening"));
+        activeSession.on("transport_event", (event) => {
+          const parsed = realtimeUsageEventSchema.safeParse(event);
+          const inputTokens = parsed.success
+            ? (parsed.data.response.usage?.input_tokens ?? 0)
+            : 0;
+          if (inputTokens >= conversationBudget * REALTIME_COMPACTION_RATIO)
+            void compactSession(activeSession);
+        });
+        activeSession.on("error", ({ error: cause }) => {
+          console.error("Loreline Realtime session error", cause);
+          if (
+            sessionRef.current !== activeSession ||
+            activeSession.transport.status === "connected"
+          )
+            return;
+          const connectionError = new UserFacingError(
+            "The voice connection was interrupted. Please reconnect.",
+          );
+          setError(connectionError.message);
+          showErrorToast(connectionError);
+          setState("error");
+        });
+        await activeSession.connect({ apiKey: token.clientSecret });
+        if (connectionEpochRef.current !== connectionEpoch) {
+          activeSession.close();
+          return null;
+        }
+        sessionRef.current = activeSession;
+        setError("");
+        setState("listening");
+        return activeSession;
+      } catch (cause) {
+        session?.close();
+        if (connectionEpochRef.current !== connectionEpoch) return null;
+        setError(toUserMessage(cause, "Loreline couldn’t connect voice."));
+        if (!(cause instanceof UserFacingError))
+          showErrorToast(cause, "Loreline couldn’t connect voice.");
+        setState("error");
+        return null;
+      }
+    })();
+    connectionRef.current = connection;
+    void connection.finally(() => {
+      if (connectionRef.current === connection) connectionRef.current = null;
+    });
+    return connection;
   }, [buildAgent, compactSession, getRealtimeToken]);
 
   const disconnect = useCallback(() => {
-    sessionRef.current?.close();
+    connectionEpochRef.current += 1;
+    connectionRef.current = null;
+    const session = sessionRef.current;
     sessionRef.current = null;
+    session?.close();
+    setError("");
     setState("idle");
   }, []);
 
   useEffect(() => {
     const session = sessionRef.current;
     if (!session) return;
-    const timeout = window.setTimeout(async () => {
-      await session.updateAgent(buildAgent());
-      if (contextRef.current.screenshot)
-        session.addImage(contextRef.current.screenshot, {
-          triggerResponse: false,
-        });
+    const timeout = window.setTimeout(() => {
+      void session.updateAgent(buildAgent()).catch((cause) => {
+        console.error(
+          "Loreline could not refresh the live page context",
+          cause,
+        );
+      });
     }, 850);
     return () => window.clearTimeout(timeout);
   }, [
     context.page,
     context.visibleText,
     context.selectedText,
-    context.pointer?.x,
-    context.pointer?.y,
+    context.savedPassages,
     buildAgent,
   ]);
 
-  useEffect(() => () => sessionRef.current?.close(), []);
+  useEffect(
+    () => () => {
+      connectionEpochRef.current += 1;
+      connectionRef.current = null;
+      const session = sessionRef.current;
+      sessionRef.current = null;
+      session?.close();
+    },
+    [],
+  );
 
   return {
     state,

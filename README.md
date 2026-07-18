@@ -4,16 +4,16 @@
 
 ## What already works
 
-| Capability            | Implementation                                                                              |
-| --------------------- | ------------------------------------------------------------------------------------------- |
-| Private library       | Better Auth ownership checks, Postgres catalog, private R2-compatible object keys           |
-| PDF reading           | PDF.js rendering, text layer, selection, pointer coordinates, page screenshots              |
-| Realtime voice        | OpenAI Agents SDK `RealtimeAgent` + `RealtimeSession` over browser WebRTC                   |
-| Visual sideboard      | Agent tools can pin notes, search the book, and generate multiple GPT Image 2 visuals       |
-| Page-first answers    | Visible text/image/selection/pointer first; pgvector RAG only when the page is insufficient |
-| Production boundaries | Effect services, Drizzle migrations, Redis limits, Zod validation, cursor pagination        |
-| UI state              | TanStack Query for server state, mutations, infinite pagination, and cache invalidation     |
-| Local operations      | Dockerized pgvector Postgres and Redis; signed browser-to-R2 PDF uploads                    |
+| Capability            | Implementation                                                                            |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| Private library       | Better Auth ownership checks, Postgres catalog, private R2-compatible object keys         |
+| PDF reading           | PDF.js rendering, text layer, selection, pointer coordinates, on-demand page inspection   |
+| Realtime voice        | OpenAI Agents SDK `RealtimeAgent` + `RealtimeSession` over browser WebRTC                 |
+| Visual sideboard      | Agent tools can pin notes, search the book, and generate illustrations through OpenRouter |
+| Page-first answers    | Visible text/selection first; bounded page images and pgvector RAG only when needed       |
+| Production boundaries | Effect services, Drizzle migrations, Redis limits, Zod validation, cursor pagination      |
+| UI state              | TanStack Query for server state, mutations, infinite pagination, and cache invalidation   |
+| Local operations      | Dockerized pgvector Postgres and Redis; signed browser-to-R2 PDF uploads                  |
 
 ## Quick start
 
@@ -51,22 +51,26 @@ The production image uses Next.js standalone output, runs as an unprivileged use
 ## AI context hierarchy
 
 ```text
-Visible PDF page image + extracted page text
-                    ↓
-       selection + pointer location
-                    ↓
-        current voice/chat question
-                    ↓
-  search_book tool / pgvector RAG (optional)
-                    ↓
- spoken answer + sideboard notes/images
+      Extracted visible page text + selection
+                       ↓
+              current spoken request
+                       ↓
+ inspect_page at pointer/page when pixels are needed
+                       ↓
+      search_book / pgvector only when needed
+                       ↓
+        spoken answer + sideboard artifacts
 ```
 
-The realtime agent has three browser-side tools:
+The realtime agent has focused browser-side tools:
 
+- `inspect_page` captures a bounded PDF canvas image only when visual inspection is needed.
 - `search_book` retrieves other passages only when the current page is insufficient.
-- `place_note` pins definitions, quotes, comparisons, or steps without forcing the user to read a chat transcript.
-- `place_visual` calls the protected image endpoint and pins one or more low-quality GPT Image 2 illustrations to the board.
+- `focus_passage` visibly focuses the exact words being discussed.
+- `turn_page` handles explicit spoken next/previous navigation.
+- `save_highlight_note` persists a note linked to an exact PDF passage.
+- `place_note` pins a temporary freeform note to the sideboard.
+- `place_visual` calls the protected illustration endpoint and pins the result to the board.
 
 ## Configuration
 
