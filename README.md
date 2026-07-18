@@ -64,7 +64,7 @@ The production image uses Next.js standalone output, runs as an unprivileged use
 
 The realtime agent has focused browser-side tools:
 
-- `inspect_page` captures a bounded PDF canvas image only when visual inspection is needed.
+- `inspect_page` captures a size-bounded full PDF page only when visual inspection is needed and marks the live cursor for deictic requests.
 - `search_book` retrieves other passages only when the current page is insufficient.
 - `focus_passage` visibly focuses the exact words being discussed.
 - `turn_page` handles explicit spoken next/previous navigation.

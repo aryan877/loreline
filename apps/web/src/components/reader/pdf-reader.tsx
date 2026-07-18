@@ -37,36 +37,55 @@ const pdfOptions = {
 };
 
 const REALTIME_IMAGE_MAX_DATA_URL_LENGTH = 120_000;
-const REALTIME_IMAGE_WIDTHS = [960, 768, 640, 512] as const;
-const REALTIME_IMAGE_QUALITIES = [0.62, 0.5, 0.4] as const;
+const REALTIME_IMAGE_WIDTHS = [960, 768, 640, 512, 384] as const;
+const REALTIME_IMAGE_QUALITIES = [0.62, 0.5, 0.4, 0.3] as const;
+
+function drawPointerMarker(
+  context: CanvasRenderingContext2D,
+  pointer: NonNullable<PointerContext>,
+  width: number,
+  height: number,
+) {
+  const x = pointer.x * width;
+  const y = pointer.y * height;
+  const radius = Math.max(9, Math.min(18, width * 0.018));
+  const rootStyles = context.canvas.ownerDocument.defaultView?.getComputedStyle(
+    context.canvas.ownerDocument.documentElement,
+  );
+  const accent =
+    rootStyles?.getPropertyValue("--primary").trim() || "CanvasText";
+  const background =
+    rootStyles?.getPropertyValue("--background").trim() || "Canvas";
+  const foreground =
+    rootStyles?.getPropertyValue("--foreground").trim() || "CanvasText";
+
+  context.save();
+  context.beginPath();
+  context.arc(x, y, radius + 3, 0, Math.PI * 2);
+  context.fillStyle = background;
+  context.fill();
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fillStyle = accent;
+  context.fill();
+  context.strokeStyle = foreground;
+  context.lineWidth = Math.max(2, radius * 0.16);
+  context.stroke();
+  context.beginPath();
+  context.moveTo(x - radius * 0.62, y);
+  context.lineTo(x + radius * 0.62, y);
+  context.moveTo(x, y - radius * 0.62);
+  context.lineTo(x, y + radius * 0.62);
+  context.stroke();
+  context.restore();
+}
 
 function captureRealtimePageImage(
   source: HTMLCanvasElement,
-  focus: PointerContext,
+  pointer: PointerContext,
 ) {
   if (!source.width || !source.height) return null;
 
-  const cropRatio = focus ? 0.55 : 1;
-  const cropWidth = source.width * cropRatio;
-  const cropHeight = source.height * cropRatio;
-  const cropX = focus
-    ? Math.max(
-        0,
-        Math.min(
-          source.width - cropWidth,
-          focus.x * source.width - cropWidth / 2,
-        ),
-      )
-    : 0;
-  const cropY = focus
-    ? Math.max(
-        0,
-        Math.min(
-          source.height - cropHeight,
-          focus.y * source.height - cropHeight / 2,
-        ),
-      )
-    : 0;
   const output = source.ownerDocument.createElement("canvas");
   const context = output.getContext("2d", { alpha: false });
   if (!context) return null;
@@ -74,26 +93,19 @@ function captureRealtimePageImage(
   const widths = [
     ...new Set(
       REALTIME_IMAGE_WIDTHS.map((width) =>
-        Math.max(1, Math.min(width, Math.round(cropWidth))),
+        Math.max(1, Math.min(width, source.width)),
       ),
     ),
   ];
   for (const width of widths) {
     output.width = width;
-    output.height = Math.max(1, Math.round((cropHeight / cropWidth) * width));
-    context.fillStyle = "#fff";
-    context.fillRect(0, 0, output.width, output.height);
-    context.drawImage(
-      source,
-      cropX,
-      cropY,
-      cropWidth,
-      cropHeight,
-      0,
-      0,
-      output.width,
-      output.height,
+    output.height = Math.max(
+      1,
+      Math.round((source.height / source.width) * width),
     );
+    context.drawImage(source, 0, 0, output.width, output.height);
+    if (pointer)
+      drawPointerMarker(context, pointer, output.width, output.height);
     for (const quality of REALTIME_IMAGE_QUALITIES) {
       const image = output.toDataURL("image/jpeg", quality);
       if (image.length <= REALTIME_IMAGE_MAX_DATA_URL_LENGTH) return image;
@@ -436,6 +448,7 @@ export default function PdfReader({
 }: PdfReaderProps) {
   const pageRef = useRef<HTMLDivElement>(null);
   const renderedPageRef = useRef<number | null>(null);
+  const livePointerRef = useRef<PointerContext>(null);
   const textLayerModelRef = useRef<TextLayerModel | null>(null);
   const hoveredSentenceKeyRef = useRef<string | null>(null);
   const modifierActiveRef = useRef(false);
@@ -528,12 +541,17 @@ export default function PdfReader({
   }, [page]);
 
   const capturePageImage = useCallback<ReaderControls["capturePageImage"]>(
-    (focus) => {
+    ({ markPointer }) => {
       if (renderedPageRef.current !== page) return null;
       const canvas = pageRef.current?.querySelector("canvas");
       if (!canvas) return null;
       try {
-        return captureRealtimePageImage(canvas, focus);
+        const pointer = livePointerRef.current;
+        const dataUrl = captureRealtimePageImage(
+          canvas,
+          markPointer ? pointer : null,
+        );
+        return dataUrl ? { dataUrl, page, pointer } : null;
       } catch {
         return null;
       }
@@ -592,6 +610,7 @@ export default function PdfReader({
     textLayerModelRef.current = pageNode
       ? buildTextLayerModel(pageNode, page)
       : null;
+    livePointerRef.current = null;
     hoveredSentenceKeyRef.current = null;
     modifierActiveRef.current = false;
     modifierSelectionRef.current = null;
@@ -649,6 +668,11 @@ export default function PdfReader({
             )
           : null;
         const modifierPressed = event.metaKey || event.ctrlKey;
+        livePointerRef.current = {
+          x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+          y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+          text: hit?.selection.text.slice(0, 320) || undefined,
+        };
 
         if (modifierPressed) {
           if (!modifierActiveRef.current) {
@@ -675,13 +699,10 @@ export default function PdfReader({
         if (hit?.key === hoveredSentenceKeyRef.current) return;
         hoveredSentenceKeyRef.current = hit?.key ?? null;
         setHoverSelection(hit?.selection ?? null);
-        onPointerChange({
-          x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
-          y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
-          text: hit?.selection.text.slice(0, 320) || undefined,
-        });
+        onPointerChange(livePointerRef.current);
       }}
       onMouseLeave={() => {
+        livePointerRef.current = null;
         hoveredSentenceKeyRef.current = null;
         modifierActiveRef.current = false;
         modifierSelectionRef.current = null;

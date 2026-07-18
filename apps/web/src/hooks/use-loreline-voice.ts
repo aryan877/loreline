@@ -122,7 +122,7 @@ function pageInstructions(
 ) {
   return [
     "You are Loreline, a calm, perceptive realtime reading companion.",
-    "The live page is primary truth. Start with extracted visible text and the reader's selected text. No page image is sent automatically. Call inspect_page only when the reader asks about a diagram, picture, visual layout, or refers to something with words like this, here, or under my cursor. The tool reads the current pointer at call time and attaches a bounded page image only when pixels are actually needed.",
+    "The live page is primary truth. Start with extracted visible text and the reader's selected text. No page image is sent automatically. Call inspect_page when the reader asks about a diagram, picture, visual layout, or refers to something with words like this, here, or under my cursor. Pointer inspection attaches the entire rendered page with the live cursor position visibly marked and also returns any extracted text under that point.",
     "Do not call inspect_page merely because the page or pointer changed, and do not claim to see page pixels until the tool confirms that it attached an image. Only call search_book when the question needs information outside this page or the visible context is genuinely insufficient.",
     "Before quoting, explaining, or narrating a specific passage, call focus_passage with the exact words and page so the reader can see what you are discussing. Use save_highlight_note when the reader asks to keep a note attached to a passage. Use place_note only for a temporary freeform sideboard artifact. Use place_visual whenever an image, scene, analogy, map, or diagram would materially improve understanding.",
     "Use voice for conversation and spoken navigation. Do not begin continuous narration or turn pages automatically. Obey explicit spoken requests to move to the next or previous PDF page.",
@@ -182,41 +182,37 @@ export function useLorelineVoice(
     const inspectPage = tool({
       name: "inspect_page",
       description:
-        "Read the reader's current pointer context or visually inspect the rendered PDF page. Use pointer scope for phrases like this, here, or under my cursor. If the pointer is over extracted text, the tool returns that text without sending pixels. If it is over non-text content, the tool attaches a focused crop. Use page scope for diagrams, pictures, page design, or layout questions; it attaches the full page. Never call this tool just because the pointer or page changed.",
+        "Visually inspect the rendered PDF page. Use pointer scope for phrases like this, here, or under my cursor; it attaches the entire page with the live cursor position visibly marked and returns any extracted text under that point. Use page scope for diagrams, pictures, page design, or layout questions that do not depend on the cursor; it attaches the entire page without a marker. Never call this tool just because the pointer or page changed.",
       parameters: z.object({
         scope: z.enum(["pointer", "page"]),
       }),
       execute: async ({ scope }) => {
         const current = contextRef.current;
-        const pointer = current.pointer;
-        const pointerSummary = pointer
-          ? `${Math.round(pointer.x * 100)}% from the left and ${Math.round(pointer.y * 100)}% from the top${pointer.text ? `, over “${pointer.text}”` : ""}`
-          : "not currently on the page";
-
-        if (scope === "pointer" && pointer?.text)
-          return `Current page: ${current.page}. The pointer is ${pointerSummary}. No image was attached because the exact text under the pointer is available.`;
-
         const session = sessionRef.current;
         if (!session || session.transport.status !== "connected")
-          return `Current page: ${current.page}. The pointer is ${pointerSummary}. A visual snapshot is unavailable because voice is not connected.`;
+          return `Current page: ${current.page}. A visual snapshot is unavailable because voice is not connected.`;
 
-        const image = controlsRef.current.capturePageImage(
-          scope === "pointer" ? pointer : null,
-        );
-        if (!image)
-          return `Current page: ${current.page}. The pointer is ${pointerSummary}. The rendered page image is not ready, so answer from the extracted text or ask the reader to try again.`;
+        const capture = controlsRef.current.capturePageImage({
+          markPointer: scope === "pointer",
+        });
+        if (!capture)
+          return `Current page: ${current.page}. The rendered page image is not ready, so answer from the extracted text or ask the reader to try again.`;
+
+        const pointerSummary = capture.pointer
+          ? `${Math.round(capture.pointer.x * 100)}% from the left and ${Math.round(capture.pointer.y * 100)}% from the top${capture.pointer.text ? `, over “${capture.pointer.text}”` : ""}`
+          : "not currently on the page";
 
         try {
-          session.addImage(image, { triggerResponse: false });
+          session.addImage(capture.dataUrl, { triggerResponse: false });
           return scope === "pointer"
-            ? `Attached a compressed visual crop centered on the pointer at ${pointerSummary} on page ${current.page}. Use that image and the live page text to answer.`
-            : `Attached a compressed full-page image for page ${current.page}. Use that image and the live page text to answer.`;
+            ? `Attached the compressed full page ${capture.page} with the cursor visibly marked at ${pointerSummary}. Use the annotated image, the extracted pointer text when present, and the live page text together.`
+            : `Attached a compressed full-page image for page ${capture.page}. Use that image and the live page text to answer.`;
         } catch (cause) {
           console.error(
             "Loreline could not attach the requested page image",
             cause,
           );
-          return `Current page: ${current.page}. The pointer is ${pointerSummary}. The visual snapshot could not be attached, so answer from extracted text or ask the reader to try again.`;
+          return `Current page: ${capture.page}. The pointer is ${pointerSummary}. The visual snapshot could not be attached, so answer from extracted text or ask the reader to try again.`;
         }
       },
     });

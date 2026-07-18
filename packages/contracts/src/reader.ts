@@ -43,6 +43,12 @@ export type ReaderFocusRequest = {
   text: string;
 };
 
+export type ReaderPageCapture = {
+  dataUrl: string;
+  page: number;
+  pointer: PointerContext;
+};
+
 export type ReaderFocus = ReaderSelection & { id: string };
 
 export type ReaderControls = {
@@ -55,7 +61,9 @@ export type ReaderControls = {
     text: string;
     note: string;
   }) => Promise<boolean>;
-  capturePageImage: (focus: PointerContext) => string | null;
+  capturePageImage: (options: {
+    markPointer: boolean;
+  }) => ReaderPageCapture | null;
   goToPage: (page: number) => boolean;
 };
 
