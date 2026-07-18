@@ -6,6 +6,7 @@ const monorepoRoot = path.join(import.meta.dirname, "../..");
 loadEnvConfig(monorepoRoot);
 
 const nextConfig: NextConfig = {
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   output: "standalone",
   outputFileTracingRoot: monorepoRoot,
   poweredByHeader: false,

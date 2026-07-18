@@ -7,5 +7,5 @@ export default defineConfig([
   ...base,
   ...nextVitals,
   ...nextTs,
-  globalIgnores([".next/**", "next-env.d.ts", "out/**"]),
+  globalIgnores([".next/**", ".next-docker/**", "next-env.d.ts", "out/**"]),
 ]);

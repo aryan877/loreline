@@ -35,6 +35,7 @@ services:
       target: development
     command: sh -c "npm run db:migrate && npm run dev --workspace=@loreline/server -- --hostname 0.0.0.0"
     environment:
+      NEXT_DIST_DIR: .next-docker
       DATABASE_URL: postgresql://loreline:loreline@postgres:5432/loreline
       REDIS_URL: redis://redis:6379
       BETTER_AUTH_SECRET: local-docker-secret-change-before-production
@@ -70,6 +71,7 @@ services:
       target: development
     command: npm run dev --workspace=@loreline/web -- --hostname 0.0.0.0
     environment:
+      NEXT_DIST_DIR: .next-docker
       SERVER_INTERNAL_URL: http://server:3001
     ports:
       - "3000:3000"
