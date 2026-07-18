@@ -13,6 +13,7 @@ import {
   ChevronRight,
   FileText,
   Folder as FolderIcon,
+  FolderPlus,
   LoaderCircle,
   Plus,
   Search,
@@ -102,8 +103,10 @@ export function LibraryView() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
+  const [folderOpen, setFolderOpen] = useState(false);
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const folderId = searchParams.get("folderId") || null;
   const foldersQuery = useQuery({
     queryKey: ["folders", folderId],
@@ -159,6 +162,22 @@ export function LibraryView() {
       setOpen(false);
       if (inputRef.current) inputRef.current.value = "";
       await queryClient.invalidateQueries({ queryKey: ["books"] });
+    },
+  });
+  const createFolderMutation = useMutation({
+    mutationFn: (name: string) =>
+      apiJson<{ folder: Folder }>("/api/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, parentId: folderId }),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["folders", folderId],
+        exact: true,
+      });
+      if (folderInputRef.current) folderInputRef.current.value = "";
+      setFolderOpen(false);
     },
   });
   const books = useMemo(
@@ -218,6 +237,16 @@ export function LibraryView() {
     });
   }
 
+  function createFolder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = folderInputRef.current?.value.trim();
+    if (!name) {
+      showErrorToast(new UserFacingError("Enter a stack name."));
+      return;
+    }
+    createFolderMutation.mutate(name);
+  }
+
   return (
     <main className="mx-auto max-w-[80rem] px-4 py-10 sm:px-0 sm:py-16">
       <div className="flex flex-col justify-between gap-7 sm:flex-row sm:items-end">
@@ -232,90 +261,142 @@ export function LibraryView() {
             A shelf for books you want to understand, not merely finish.
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger render={<Button size="lg" className="h-10" />}>
-            <Plus />
-            Add a book
-          </DialogTrigger>
-          <DialogContent className="rounded-3xl p-6 sm:max-w-lg">
-            <form onSubmit={upload}>
-              <DialogHeader>
-                <DialogTitle className="text-3xl font-semibold tracking-[-0.04em]">
-                  Bring in a book
-                </DialogTitle>
-                <DialogDescription>
-                  Upload a PDF. Loreline extracts its text privately and
-                  prepares optional semantic retrieval.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="mt-6 space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="file">PDF file</Label>
-                  <label
-                    htmlFor="file"
-                    className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed bg-card text-center transition-colors hover:bg-control"
-                  >
-                    <UploadCloud className="mb-3 size-6 text-brand-ink" />
-                    <span className="text-sm font-medium">Choose a PDF</span>
-                    <span className="mt-1 text-xs text-muted-foreground">
-                      Up to {MAX_BOOK_FILE_SIZE_LABEL}
-                    </span>
-                  </label>
+        <div className="flex items-center gap-2">
+          <Dialog open={folderOpen} onOpenChange={setFolderOpen}>
+            <DialogTrigger
+              render={<Button size="lg" variant="outline" className="h-10" />}
+            >
+              <FolderPlus />
+              New Stack
+            </DialogTrigger>
+            <DialogContent className="rounded-3xl p-6 sm:max-w-md">
+              <form onSubmit={createFolder}>
+                <DialogHeader>
+                  <DialogTitle className="text-3xl font-semibold tracking-[-0.04em]">
+                    Create Stack
+                  </DialogTitle>
+                  <DialogDescription>
+                    Keep related books together in one stack.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="mt-6 space-y-2">
+                  <Label htmlFor="folder-name">Stack name</Label>
                   <Input
-                    ref={inputRef}
-                    id="file"
-                    name="file"
-                    type="file"
-                    accept="application/pdf,.pdf"
+                    ref={folderInputRef}
+                    id="folder-name"
+                    name="folder-name"
                     required
-                    className="sr-only"
+                    maxLength={180}
+                    placeholder="Programming"
                   />
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <DialogFooter className="mt-6">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setFolderOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={createFolderMutation.isPending}
+                  >
+                    {createFolderMutation.isPending && (
+                      <LoaderCircle className="animate-spin" />
+                    )}
+                    Create Stack
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger render={<Button size="lg" className="h-10" />}>
+              <Plus />
+              Add a book
+            </DialogTrigger>
+            <DialogContent className="rounded-3xl p-6 sm:max-w-lg">
+              <form onSubmit={upload}>
+                <DialogHeader>
+                  <DialogTitle className="text-3xl font-semibold tracking-[-0.04em]">
+                    Bring in a book
+                  </DialogTitle>
+                  <DialogDescription>
+                    Upload a PDF. Loreline extracts its text privately and
+                    prepares optional semantic retrieval.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="mt-6 space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="title">
-                      Title{" "}
-                      <span className="text-muted-foreground">(optional)</span>
-                    </Label>
+                    <Label htmlFor="file">PDF file</Label>
+                    <label
+                      htmlFor="file"
+                      className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed bg-card text-center transition-colors hover:bg-control"
+                    >
+                      <UploadCloud className="mb-3 size-6 text-brand-ink" />
+                      <span className="text-sm font-medium">Choose a PDF</span>
+                      <span className="mt-1 text-xs text-muted-foreground">
+                        Up to {MAX_BOOK_FILE_SIZE_LABEL}
+                      </span>
+                    </label>
                     <Input
-                      id="title"
-                      name="title"
-                      placeholder="Detected from filename"
+                      ref={inputRef}
+                      id="file"
+                      name="file"
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      required
+                      className="sr-only"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="author">
-                      Author{" "}
-                      <span className="text-muted-foreground">(optional)</span>
-                    </Label>
-                    <Input
-                      id="author"
-                      name="author"
-                      placeholder="Author name"
-                    />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="title">
+                        Title{" "}
+                        <span className="text-muted-foreground">(optional)</span>
+                      </Label>
+                      <Input
+                        id="title"
+                        name="title"
+                        placeholder="Detected from filename"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="author">
+                        Author{" "}
+                        <span className="text-muted-foreground">(optional)</span>
+                      </Label>
+                      <Input
+                        id="author"
+                        name="author"
+                        placeholder="Author name"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-              <DialogFooter className="mt-6">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={uploadMutation.isPending}>
-                  {uploadMutation.isPending && (
-                    <LoaderCircle className="animate-spin" />
-                  )}
-                  {uploadMutation.isPending
-                    ? "Preparing book…"
-                    : "Add to library"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <DialogFooter className="mt-6">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={uploadMutation.isPending}>
+                    {uploadMutation.isPending && (
+                      <LoaderCircle className="animate-spin" />
+                    )}
+                    {uploadMutation.isPending
+                      ? "Preparing book…"
+                      : "Add to library"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <div className="mt-10 flex items-center gap-3 border-b pb-5">
@@ -344,7 +425,7 @@ export function LibraryView() {
         {folderId && breadcrumbQuery.isPending ? (
           <span className="ml-2 h-4 w-24 animate-pulse rounded bg-muted" />
         ) : folderId && breadcrumbQuery.isError ? (
-          <span className="ml-2">Folder path unavailable.</span>
+          <span className="ml-2">Stack path unavailable.</span>
         ) : (
           breadcrumb.map((folder, index) => (
             <span key={folder.id} className="flex items-center gap-1">
@@ -381,7 +462,7 @@ export function LibraryView() {
           <span className="truncate">
             {toUserMessage(
               foldersQuery.error,
-              "Loreline couldn’t load your folders. Please try again.",
+              "Loreline couldn’t load your stacks. Please try again.",
             )}
           </span>
           <Button
