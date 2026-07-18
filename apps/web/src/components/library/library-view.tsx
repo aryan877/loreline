@@ -52,10 +52,11 @@ import {
   type BeginBookUploadResponse,
   MAX_BOOK_FILE_SIZE,
   MAX_BOOK_FILE_SIZE_LABEL,
+  type BookListItem,
   type BooksPageResponse,
   type UploadBookResponse,
 } from "@loreline/contracts/books";
-import type { Folder } from "@loreline/contracts/folders";
+import type { Folder, FolderTreeNode } from "@loreline/contracts/folders";
 
 async function getBooks(
   folderId: string | null,
@@ -81,6 +82,20 @@ async function getFolderBreadcrumb(
   return apiJson<{ breadcrumb: Folder[] }>(
     `/api/folders/${folderId}/breadcrumb`,
   );
+}
+
+async function getFolderTree(): Promise<{ tree: FolderTreeNode[] }> {
+  return apiJson<{ tree: FolderTreeNode[] }>("/api/folders/tree");
+}
+
+function flattenFolderTree(
+  nodes: FolderTreeNode[],
+  depth = 0,
+): Array<{ folder: Folder; depth: number }> {
+  return nodes.flatMap((node) => [
+    { folder: node, depth },
+    ...flattenFolderTree(node.children, depth + 1),
+  ]);
 }
 
 function BookCover({ title, index }: { title: string; index: number }) {
@@ -118,6 +133,9 @@ export function LibraryView() {
   const [renameName, setRenameName] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Folder | null>(null);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<BookListItem | null>(null);
+  const [moveDestination, setMoveDestination] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -130,6 +148,11 @@ export function LibraryView() {
     queryKey: ["folderBreadcrumb", folderId],
     queryFn: () => getFolderBreadcrumb(folderId!),
     enabled: !!folderId,
+  });
+  const folderTreeQuery = useQuery({
+    queryKey: ["folderTree"],
+    queryFn: getFolderTree,
+    enabled: moveOpen,
   });
   const booksQuery = useInfiniteQuery({
     queryKey: ["books", folderId],
@@ -243,12 +266,42 @@ export function LibraryView() {
       setDeleteOpen(false);
     },
   });
+  const moveBookMutation = useMutation({
+    mutationFn: ({
+      bookId,
+      folderId: destinationFolderId,
+    }: {
+      bookId: string;
+      folderId: string | null;
+    }) =>
+      apiJson<{ book: { id: string; folderId: string | null } }>(
+        `/api/books/${bookId}/move`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folderId: destinationFolderId }),
+        },
+      ),
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({
+        queryKey: ["books", folderId],
+        exact: true,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["folders", variables.folderId],
+        exact: true,
+      });
+      setMoveTarget(null);
+      setMoveOpen(false);
+    },
+  });
   const books = useMemo(
     () => booksQuery.data?.pages.flatMap((page) => page.books) ?? [],
     [booksQuery.data],
   );
   const folders = foldersQuery.data?.folders ?? [];
   const breadcrumb = breadcrumbQuery.data?.breadcrumb ?? [];
+  const folderOptions = flattenFolderTree(folderTreeQuery.data?.tree ?? []);
   const filtered = books.filter((book) =>
     `${book.title} ${book.author ?? ""}`
       .toLowerCase()
@@ -335,6 +388,20 @@ export function LibraryView() {
   function deleteFolder() {
     if (!deleteTarget) return;
     deleteFolderMutation.mutate(deleteTarget.id);
+  }
+
+  function openMove(book: BookListItem) {
+    setMoveTarget(book);
+    setMoveDestination(folderId);
+    setMoveOpen(true);
+  }
+
+  function moveBook() {
+    if (!moveTarget) return;
+    moveBookMutation.mutate({
+      bookId: moveTarget.id,
+      folderId: moveDestination,
+    });
   }
 
   return (
@@ -488,6 +555,87 @@ export function LibraryView() {
                     <LoaderCircle className="animate-spin" />
                   )}
                   Delete Stack
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={moveOpen}
+            onOpenChange={(nextOpen) => {
+              setMoveOpen(nextOpen);
+              if (!nextOpen) setMoveTarget(null);
+            }}
+          >
+            <DialogContent className="rounded-3xl p-6 sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="text-3xl font-semibold tracking-[-0.04em]">
+                  Move Book
+                </DialogTitle>
+                <DialogDescription>
+                  Choose where to keep “{moveTarget?.title}”.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="mt-2 max-h-72 space-y-1 overflow-y-auto">
+                {folderTreeQuery.isPending ? (
+                  <div className="h-10 animate-pulse rounded-lg bg-muted" />
+                ) : folderTreeQuery.isError ? (
+                  <div className="flex items-center justify-between gap-3 py-3 text-sm text-muted-foreground">
+                    <span>Stacks could not be loaded.</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => folderTreeQuery.refetch()}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      aria-pressed={moveDestination === null}
+                      onClick={() => setMoveDestination(null)}
+                      className="flex w-full items-center gap-3 rounded-lg p-2 text-left text-sm hover:bg-control aria-pressed:bg-control"
+                    >
+                      <FolderIcon className="size-4 text-brand-ink" />
+                      Shelf
+                    </button>
+                    {folderOptions.map(({ folder, depth }) => (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        aria-pressed={moveDestination === folder.id}
+                        onClick={() => setMoveDestination(folder.id)}
+                        style={{ paddingLeft: `${0.5 + depth * 1.25}rem` }}
+                        className="flex w-full items-center gap-3 rounded-lg p-2 pr-2 text-left text-sm hover:bg-control aria-pressed:bg-control"
+                      >
+                        <FolderIcon className="size-4 shrink-0 text-brand-ink" />
+                        <span className="truncate">{folder.name}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+              <DialogFooter className="mt-4">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setMoveOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={
+                    moveBookMutation.isPending || folderTreeQuery.isPending
+                  }
+                  onClick={moveBook}
+                >
+                  {moveBookMutation.isPending && (
+                    <LoaderCircle className="animate-spin" />
+                  )}
+                  Move Book
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -753,11 +901,11 @@ export function LibraryView() {
         <>
           <div className="grid grid-cols-2 gap-x-5 gap-y-10 py-10 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
             {filtered.map((book, index) => (
-              <Link
+              <div
                 key={book.id}
-                href={`/library/${book.id}`}
-                className="group min-w-0"
+                className="group relative min-w-0"
               >
+                <Link href={`/library/${book.id}`}>
                 <BookCover title={book.title} index={index} />
                 <div className="mt-4">
                   <div className="flex items-start justify-between gap-2">
@@ -772,7 +920,28 @@ export function LibraryView() {
                   </p>
                   <Progress value={book.progress * 100} className="mt-3 h-1" />
                 </div>
-              </Link>
+                </Link>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`Actions for ${book.title}`}
+                        className="absolute top-2 right-2 bg-card/80 opacity-0 backdrop-blur-sm group-hover:opacity-100 focus-visible:opacity-100"
+                      />
+                    }
+                  >
+                    <Ellipsis />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-36">
+                    <DropdownMenuItem onClick={() => openMove(book)}>
+                      <FolderIcon />
+                      Move to...
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             ))}
           </div>
           {booksQuery.hasNextPage && (
