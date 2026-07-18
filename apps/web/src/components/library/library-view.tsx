@@ -16,7 +16,7 @@ import {
   UploadCloud,
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,10 +71,17 @@ function BookCover({ title, index }: { title: string; index: number }) {
   );
 }
 
+function formatFileSize(bytes: number) {
+  const megabytes = bytes / (1024 * 1024);
+  if (megabytes >= 0.1) return `${megabytes.toFixed(1)} MB`;
+  return `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+}
+
 export function LibraryView() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const booksQuery = useInfiniteQuery({
     queryKey: ["books"],
@@ -119,6 +126,7 @@ export function LibraryView() {
     },
     onSuccess: async () => {
       setOpen(false);
+      setSelectedFile(null);
       if (inputRef.current) inputRef.current.value = "";
       await queryClient.invalidateQueries({ queryKey: ["books"] });
     },
@@ -133,9 +141,21 @@ export function LibraryView() {
       .includes(search.toLowerCase()),
   );
 
+  function changeFile(event: ChangeEvent<HTMLInputElement>) {
+    setSelectedFile(event.currentTarget.files?.[0] ?? null);
+  }
+
+  function changeDialogOpen(nextOpen: boolean) {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setSelectedFile(null);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
   function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const file = inputRef.current?.files?.[0];
+    const file = selectedFile;
     if (!file) {
       showErrorToast(new UserFacingError("Choose a PDF to upload."));
       return;
@@ -179,7 +199,7 @@ export function LibraryView() {
             A shelf for books you want to understand, not merely finish.
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={changeDialogOpen}>
           <DialogTrigger render={<Button size="lg" className="h-10" />}>
             <Plus />
             Add a book
@@ -200,13 +220,31 @@ export function LibraryView() {
                   <Label htmlFor="file">PDF file</Label>
                   <label
                     htmlFor="file"
-                    className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed bg-card text-center transition-colors hover:bg-control"
+                    className={`flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-6 text-center transition-colors hover:bg-control ${
+                      selectedFile
+                        ? "border-brand-ink/35 bg-brand-ink/5"
+                        : "bg-card"
+                    }`}
                   >
-                    <UploadCloud className="mb-3 size-6 text-brand-ink" />
-                    <span className="text-sm font-medium">Choose a PDF</span>
-                    <span className="mt-1 text-xs text-muted-foreground">
-                      Up to {MAX_BOOK_FILE_SIZE_LABEL}
-                    </span>
+                    {selectedFile ? (
+                      <>
+                        <FileText className="mb-3 size-6 text-brand-ink" />
+                        <span className="max-w-full truncate text-sm font-medium">
+                          {selectedFile.name}
+                        </span>
+                        <span className="mt-1 text-xs text-muted-foreground">
+                          {formatFileSize(selectedFile.size)} · Choose another PDF
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <UploadCloud className="mb-3 size-6 text-brand-ink" />
+                        <span className="text-sm font-medium">Choose a PDF</span>
+                        <span className="mt-1 text-xs text-muted-foreground">
+                          Up to {MAX_BOOK_FILE_SIZE_LABEL}
+                        </span>
+                      </>
+                    )}
                   </label>
                   <Input
                     ref={inputRef}
@@ -216,6 +254,7 @@ export function LibraryView() {
                     accept="application/pdf,.pdf"
                     required
                     className="sr-only"
+                    onChange={changeFile}
                   />
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -247,11 +286,15 @@ export function LibraryView() {
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => setOpen(false)}
+                  disabled={uploadMutation.isPending}
+                  onClick={() => changeDialogOpen(false)}
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={uploadMutation.isPending}>
+                <Button
+                  type="submit"
+                  disabled={!selectedFile || uploadMutation.isPending}
+                >
                   {uploadMutation.isPending && (
                     <LoaderCircle className="animate-spin" />
                   )}
