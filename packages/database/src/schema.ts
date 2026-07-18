@@ -259,9 +259,34 @@ export const highlights = pgTable(
   (table) => [index("highlights_book_idx").on(table.bookId, table.page)],
 );
 
+export const bookmarks = pgTable(
+  "bookmarks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bookId: uuid("book_id")
+      .notNull()
+      .references(() => books.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    page: integer("page").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("bookmarks_book_user_page_idx").on(
+      table.bookId,
+      table.userId,
+      table.page,
+    ),
+  ],
+);
+
 export const bookRelations = relations(books, ({ many }) => ({
   chunks: many(bookChunks),
   conversations: many(conversations),
   illustrations: many(illustrations),
   highlights: many(highlights),
+  bookmarks: many(bookmarks),
 }));

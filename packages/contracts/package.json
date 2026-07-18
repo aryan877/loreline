@@ -6,7 +6,9 @@
   "exports": {
     "./ai": "./src/ai.ts",
     "./auth": "./src/auth.ts",
+    "./bookmarks": "./src/bookmarks.ts",
     "./books": "./src/books.ts",
+    "./highlights": "./src/highlights.ts",
     "./reader": "./src/reader.ts",
     "./domain/reader": "./src/domain/reader.ts"
   },

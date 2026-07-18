@@ -1,0 +1,38 @@
+import { describe, expect, it } from "vitest";
+import { findMatchingTextRunRange } from "./pdf-text";
+
+describe("findMatchingTextRunRange", () => {
+  const runs = [
+    "Reading is not the act of moving quickly across a page.",
+    "It is the quieter art of noticing what changes inside us.",
+    "A note remains attached to that moment.",
+  ];
+
+  it("matches a passage inside one PDF text run", () => {
+    expect(findMatchingTextRunRange(runs, "quieter art of noticing")).toEqual({
+      start: 1,
+      end: 1,
+    });
+  });
+
+  it("matches across adjacent PDF text runs", () => {
+    expect(
+      findMatchingTextRunRange(
+        runs,
+        "across a page. It is the quieter art",
+      ),
+    ).toEqual({ start: 0, end: 1 });
+  });
+
+  it("normalizes punctuation and case", () => {
+    expect(findMatchingTextRunRange(runs, "A NOTE—remains attached")).toEqual({
+      start: 2,
+      end: 2,
+    });
+  });
+
+  it("returns null when the passage is absent", () => {
+    expect(findMatchingTextRunRange(runs, "A completely different claim"))
+      .toBeNull();
+  });
+});

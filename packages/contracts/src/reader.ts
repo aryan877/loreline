@@ -1,4 +1,4 @@
-import type { PointerContext } from "./domain/reader";
+import type { HighlightRect, PointerContext } from "./domain/reader";
 
 export type BoardItem =
   | {
@@ -26,6 +26,38 @@ export type ReadingContext = {
   selectedText: string;
   pointer: PointerContext;
   screenshot: string | null;
+  readerMode: boolean;
+  savedPassages: Array<{
+    text: string;
+    note: string | null;
+  }>;
+};
+
+export type ReaderSelection = {
+  page: number;
+  text: string;
+  rects: HighlightRect[];
+};
+
+export type ReaderFocusRequest = {
+  id: string;
+  page: number;
+  text: string;
+};
+
+export type ReaderFocus = ReaderSelection & { id: string };
+
+export type ReaderControls = {
+  focusPassage: (input: {
+    page: number;
+    text: string;
+  }) => Promise<ReaderSelection | null>;
+  savePassageNote: (input: {
+    page: number;
+    text: string;
+    note: string;
+  }) => Promise<boolean>;
+  goToPage: (page: number) => boolean;
 };
 
 export type ChatMessage = {

@@ -1,5 +1,6 @@
 import type { InferInsertModel, InferSelectModel } from "drizzle-orm";
 import type {
+  bookmarks,
   bookChunks,
   books,
   conversations,
@@ -16,3 +17,4 @@ export type ConversationRow = InferSelectModel<typeof conversations>;
 export type MessageRow = InferSelectModel<typeof messages>;
 export type IllustrationRow = InferSelectModel<typeof illustrations>;
 export type HighlightRow = InferSelectModel<typeof highlights>;
+export type BookmarkRow = InferSelectModel<typeof bookmarks>;
