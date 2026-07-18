@@ -1,4 +1,40 @@
 export type TextRunRange = { start: number; end: number };
+export type SentenceTextRange = {
+  start: number;
+  end: number;
+  text: string;
+};
+
+export function sentenceTextRanges(text: string): SentenceTextRange[] {
+  const segmenter = new Intl.Segmenter(undefined, {
+    granularity: "sentence",
+  });
+  const segmented = Array.from(segmenter.segment(text)).flatMap((part) => {
+    const leadingSpace = part.segment.search(/\S/);
+    if (leadingSpace < 0) return [];
+    const trailingSpace = part.segment.length - part.segment.trimEnd().length;
+    const start = part.index + leadingSpace;
+    const end = part.index + part.segment.length - trailingSpace;
+    const sentence = text
+      .slice(start, end)
+      .replace(/\s+/g, " ")
+      .trim();
+    return sentence ? [{ start, end, text: sentence }] : [];
+  });
+  const ranges: SentenceTextRange[] = [];
+  const titleAbbreviation =
+    /\b(?:mr|mrs|ms|dr|prof|gen|col|lt|capt|sgt|rev|hon|pres|gov|sen|rep|st)\.$/i;
+  for (const sentence of segmented) {
+    const previous = ranges.at(-1);
+    if (previous && titleAbbreviation.test(previous.text)) {
+      previous.end = sentence.end;
+      previous.text = `${previous.text} ${sentence.text}`;
+    } else {
+      ranges.push({ ...sentence });
+    }
+  }
+  return ranges;
+}
 
 export function normalizePdfText(value: string) {
   return value

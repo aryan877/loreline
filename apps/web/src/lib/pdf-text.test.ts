@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { findMatchingTextRunRange } from "./pdf-text";
+import { findMatchingTextRunRange, sentenceTextRanges } from "./pdf-text";
+
+describe("sentenceTextRanges", () => {
+  it("keeps sentence boundaries across PDF text-run whitespace", () => {
+    expect(
+      sentenceTextRanges(
+        "  Dr. Shiloah kept the plan secret.\nThe organization changed later.  ",
+      ).map(({ text }) => text),
+    ).toEqual([
+      "Dr. Shiloah kept the plan secret.",
+      "The organization changed later.",
+    ]);
+  });
+});
 
 describe("findMatchingTextRunRange", () => {
   const runs = [

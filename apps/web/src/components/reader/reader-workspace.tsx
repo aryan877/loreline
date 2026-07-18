@@ -324,7 +324,7 @@ function Sideboard({
                 </p>
                 {selectedText && (
                   <p className="mt-2 text-[0.64rem] font-medium text-muted-foreground">
-                    Hold Cmd or Ctrl while dragging to add another passage.
+                    Hold Cmd or Ctrl and move across sentences to add them.
                   </p>
                 )}
               </div>
@@ -1123,7 +1123,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
           {selection && (
             <div className="absolute inset-x-3 bottom-4 z-30 mx-auto flex max-w-xl items-center gap-2 rounded-2xl border bg-background/95 p-2 pl-3 shadow-float backdrop-blur-xl">
               <p className="min-w-0 flex-1 text-xs font-medium text-ink-soft">
-                {selection.text.split(/\s+/).length} words · Cmd/Ctrl-drag to add
+                {selection.text.split(/\s+/).length} words · Hold Cmd/Ctrl and move to add
               </p>
               <Button
                 variant="secondary"

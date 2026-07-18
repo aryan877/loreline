@@ -21,7 +21,10 @@ import type {
   ReaderSelection,
 } from "@loreline/contracts/reader";
 import { Button } from "@/components/ui/button";
-import { findMatchingTextRunRange } from "@/lib/pdf-text";
+import {
+  findMatchingTextRunRange,
+  sentenceTextRanges,
+} from "@/lib/pdf-text";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -116,6 +119,16 @@ function mergeSelections(
 ): ReaderSelection | null {
   if (!base) return addition;
   if (!addition || addition.page !== base.page) return base;
+  const alreadyIncluded = addition.rects.every((rect) =>
+    base.rects.some(
+      (candidate) =>
+        Math.abs(candidate.x - rect.x) < 0.0001 &&
+        Math.abs(candidate.y - rect.y) < 0.0001 &&
+        Math.abs(candidate.width - rect.width) < 0.0001 &&
+        Math.abs(candidate.height - rect.height) < 0.0001,
+    ),
+  );
+  if (alreadyIncluded) return base;
   const rects = [...base.rects, ...addition.rects]
     .filter(
       (rect, index, all) =>
@@ -136,54 +149,145 @@ function mergeSelections(
   };
 }
 
-function lineAtSpan(
+type TextSpanEntry = {
+  span: HTMLElement;
+  node: Text;
+  start: number;
+  end: number;
+};
+
+type SentenceBoundary = {
+  key: string;
+  start: number;
+  end: number;
+  text: string;
+};
+
+type TextLayerModel = {
+  page: number;
+  entries: TextSpanEntry[];
+  entryBySpan: WeakMap<HTMLElement, TextSpanEntry>;
+  sentences: SentenceBoundary[];
+  selectionBySentence: Map<string, ReaderSelection>;
+};
+
+type SentenceHit = {
+  key: string;
+  selection: ReaderSelection;
+};
+
+function sentenceBoundaries(text: string, page: number): SentenceBoundary[] {
+  return sentenceTextRanges(text).map((sentence) => ({
+    ...sentence,
+    key: `${page}:${sentence.start}:${sentence.end}`,
+  }));
+}
+
+function buildTextLayerModel(
   pageNode: HTMLElement,
-  target: HTMLElement,
   page: number,
-): ReaderSelection | null {
-  const targetRect = target.getBoundingClientRect();
-  const spans = Array.from(
+): TextLayerModel | null {
+  const entries: TextSpanEntry[] = [];
+  const entryBySpan = new WeakMap<HTMLElement, TextSpanEntry>();
+  let fullText = "";
+  for (const span of Array.from(
     pageNode.querySelectorAll<HTMLElement>(
       ".react-pdf__Page__textContent span",
     ),
-  )
-    .map((span) => ({ span, rect: span.getBoundingClientRect() }))
-    .filter(({ rect }) => {
-      const overlap =
-        Math.min(targetRect.bottom, rect.bottom) -
-        Math.max(targetRect.top, rect.top);
-      return overlap / Math.min(targetRect.height, rect.height) >= 0.55;
-    })
-    .sort((left, right) => left.rect.left - right.rect.left);
-  const targetIndex = spans.findIndex(({ span }) => span === target);
-  if (targetIndex < 0) return null;
+  )) {
+    const node = Array.from(span.childNodes).find(
+      (child): child is Text => child.nodeType === Node.TEXT_NODE,
+    );
+    const text = node?.data ?? "";
+    if (!node || !text) continue;
+    if (fullText) fullText += " ";
+    const entry = {
+      span,
+      node,
+      start: fullText.length,
+      end: fullText.length + text.length,
+    };
+    fullText += text;
+    entries.push(entry);
+    entryBySpan.set(span, entry);
+  }
+  if (!entries.length || !fullText.trim()) return null;
+  return {
+    page,
+    entries,
+    entryBySpan,
+    sentences: sentenceBoundaries(fullText, page),
+    selectionBySentence: new Map(),
+  };
+}
 
-  const maxGap = Math.max(14, targetRect.height * 1.8);
-  let start = targetIndex;
-  let end = targetIndex;
-  while (
-    start > 0 &&
-    spans[start]!.rect.left - spans[start - 1]!.rect.right <= maxGap
-  )
-    start--;
-  while (
-    end < spans.length - 1 &&
-    spans[end + 1]!.rect.left - spans[end]!.rect.right <= maxGap
-  )
-    end++;
+function entryAtOffset(
+  entries: TextSpanEntry[],
+  offset: number,
+): TextSpanEntry | null {
+  return (
+    entries.find((entry) => offset >= entry.start && offset < entry.end) ??
+    entries.find((entry) => entry.start > offset) ??
+    entries.at(-1) ??
+    null
+  );
+}
 
-  const line = spans.slice(start, end + 1);
-  const text = line
-    .map(({ span }) => span.textContent ?? "")
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 4_000);
+function sentenceAtPoint(
+  pageNode: HTMLElement,
+  model: TextLayerModel | null,
+  target: HTMLElement,
+  clientX: number,
+  clientY: number,
+): SentenceHit | null {
+  if (!model) return null;
+  const entry = model.entryBySpan.get(target);
+  if (!entry) return null;
+  const caret = document.caretPositionFromPoint(clientX, clientY);
+  const targetRect = target.getBoundingClientRect();
+  const estimatedOffset = Math.round(
+    Math.max(
+      0,
+      Math.min(
+        entry.node.length,
+        ((clientX - targetRect.left) / Math.max(1, targetRect.width)) *
+          entry.node.length,
+      ),
+    ),
+  );
+  const localOffset =
+    caret?.offsetNode === entry.node ? caret.offset : estimatedOffset;
+  const textOffset = Math.min(entry.end - 1, entry.start + localOffset);
+  const sentence =
+    model.sentences.find(
+      (candidate) =>
+        textOffset >= candidate.start && textOffset < candidate.end,
+    ) ?? null;
+  if (!sentence) return null;
+  const cachedSelection = model.selectionBySentence.get(sentence.key);
+  if (cachedSelection)
+    return { key: sentence.key, selection: cachedSelection };
+  const startEntry = entryAtOffset(model.entries, sentence.start);
+  const endEntry = entryAtOffset(model.entries, sentence.end - 1);
+  if (!startEntry || !endEntry) return null;
+
+  const range = document.createRange();
+  range.setStart(
+    startEntry.node,
+    Math.max(0, Math.min(startEntry.node.length, sentence.start - startEntry.start)),
+  );
+  range.setEnd(
+    endEntry.node,
+    Math.max(0, Math.min(endEntry.node.length, sentence.end - endEntry.start)),
+  );
   const rects = normalizedRects(
-    line.map(({ rect }) => rect),
+    Array.from(range.getClientRects()),
     pageNode.getBoundingClientRect(),
   );
-  return text && rects.length ? { page, text, rects } : null;
+  if (!rects.length) return null;
+  const selection = { page: model.page, text: sentence.text, rects };
+  model.selectionBySentence.set(sentence.key, selection);
+  return { key: sentence.key, selection };
 }
 
 function HighlightLayer({
@@ -229,7 +333,7 @@ function HighlightLayer({
       ))}
       {hoverSelection?.rects.map((rect, index) => (
         <span
-          key={`hover-line-${index}`}
+          key={`hover-sentence-${index}`}
           className="absolute rounded-[0.16rem] bg-reader-highlight/30 mix-blend-multiply"
           style={{
             left: `${rect.x * 100}%`,
@@ -260,11 +364,11 @@ export default function PdfReader({
   onFocusResolved,
 }: PdfReaderProps) {
   const pageRef = useRef<HTMLDivElement>(null);
-  const selectingRef = useRef(false);
-  const additiveBaseRef = useRef<ReaderSelection | null>(null);
-  const hoveredSpanRef = useRef<HTMLElement | null>(null);
-  const hoverSelectionRef = useRef<ReaderSelection | null>(null);
-  const selectionFrameRef = useRef<number | null>(null);
+  const textLayerModelRef = useRef<TextLayerModel | null>(null);
+  const hoveredSentenceKeyRef = useRef<string | null>(null);
+  const modifierActiveRef = useRef(false);
+  const modifierSelectionRef = useRef<ReaderSelection | null>(null);
+  const sweptSentenceKeysRef = useRef(new Set<string>());
   const [attempt, setAttempt] = useState(0);
   const [failedPage, setFailedPage] = useState<{
     fileUrl: string;
@@ -277,9 +381,6 @@ export default function PdfReader({
     width: number;
     height: number;
   } | null>(null);
-  const [liveSelection, setLiveSelection] = useState<ReaderSelection | null>(
-    null,
-  );
   const [hoverSelection, setHoverSelection] =
     useState<ReaderSelection | null>(null);
   const hasError =
@@ -296,64 +397,25 @@ export default function PdfReader({
   const renderWidth = Math.max(1, Math.floor(fittedWidth * zoom));
   const renderHeight = Math.max(1, Math.floor(renderWidth / aspectRatio));
 
-  const readSelection = useCallback((): ReaderSelection | null => {
-    const selection = window.getSelection();
-    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-    const pageNode = pageRef.current;
-    if (!selection || !range || !pageNode) return null;
-    const text = selection
-      .toString()
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 4000);
-    if (!text || !pageNode.contains(range.commonAncestorContainer)) return null;
-    const rects = normalizedRects(
-      Array.from(range.getClientRects()),
-      pageNode.getBoundingClientRect(),
-    );
-    return rects.length ? { page, text, rects } : null;
-  }, [page]);
-
-  const finishSelection = useCallback(() => {
-    if (!selectingRef.current) return;
-    selectingRef.current = false;
-    if (selectionFrameRef.current !== null) {
-      window.cancelAnimationFrame(selectionFrameRef.current);
-      selectionFrameRef.current = null;
-    }
-    const nextSelection = mergeSelections(
-      additiveBaseRef.current,
-      readSelection() ?? hoverSelectionRef.current,
-    );
-    additiveBaseRef.current = null;
-    setLiveSelection(null);
-    window.getSelection()?.removeAllRanges();
-    onPointerChange(null);
-    onSelectionChange(nextSelection);
-  }, [onPointerChange, onSelectionChange, readSelection]);
-
   useEffect(() => {
-    const updateLiveSelection = () => {
-      if (!selectingRef.current || selectionFrameRef.current !== null) return;
-      selectionFrameRef.current = window.requestAnimationFrame(() => {
-        selectionFrameRef.current = null;
-        setLiveSelection(
-          mergeSelections(additiveBaseRef.current, readSelection()),
-        );
-      });
+    const finishModifierSweep = (event: KeyboardEvent) => {
+      if (event.key !== "Meta" && event.key !== "Control") return;
+      modifierActiveRef.current = false;
+      modifierSelectionRef.current = null;
+      sweptSentenceKeysRef.current.clear();
     };
-    document.addEventListener("selectionchange", updateLiveSelection);
+    const finishOnBlur = () => {
+      modifierActiveRef.current = false;
+      modifierSelectionRef.current = null;
+      sweptSentenceKeysRef.current.clear();
+    };
+    window.addEventListener("keyup", finishModifierSweep);
+    window.addEventListener("blur", finishOnBlur);
     return () => {
-      document.removeEventListener("selectionchange", updateLiveSelection);
-      if (selectionFrameRef.current !== null)
-        window.cancelAnimationFrame(selectionFrameRef.current);
+      window.removeEventListener("keyup", finishModifierSweep);
+      window.removeEventListener("blur", finishOnBlur);
     };
-  }, [readSelection]);
-
-  useEffect(() => {
-    document.addEventListener("mouseup", finishSelection);
-    return () => document.removeEventListener("mouseup", finishSelection);
-  }, [finishSelection]);
+  }, []);
 
   const locatePassage = useCallback((passage: string) => {
     const pageNode = pageRef.current;
@@ -442,7 +504,19 @@ export default function PdfReader({
     [onVisibleTextChange],
   );
 
-  const handleTextLayerRender = useCallback(() => setTextLayerPage(page), [page]);
+  const handleTextLayerRender = useCallback(() => {
+    const pageNode = pageRef.current;
+    textLayerModelRef.current = pageNode
+      ? buildTextLayerModel(pageNode, page)
+      : null;
+    hoveredSentenceKeyRef.current = null;
+    modifierActiveRef.current = false;
+    modifierSelectionRef.current = null;
+    sweptSentenceKeysRef.current.clear();
+    setHoverSelection(null);
+    onPointerChange(null);
+    setTextLayerPage(page);
+  }, [onPointerChange, page]);
 
   if (hasError)
     return (
@@ -475,45 +549,63 @@ export default function PdfReader({
   return (
     <div
       ref={pageRef}
-      className="relative mx-auto w-fit overflow-hidden bg-card shadow-float"
-      onMouseDown={(event) => {
-        selectingRef.current = true;
-        additiveBaseRef.current =
-          (event.metaKey || event.ctrlKey) &&
-          activeFocus?.id === "current-selection"
-            ? activeFocus
-            : null;
-        setLiveSelection(null);
-        setHoverSelection(null);
-        hoveredSpanRef.current = null;
-        onPointerChange(null);
-        if (!additiveBaseRef.current) onSelectionChange(null);
-      }}
+      className="relative mx-auto w-fit select-none overflow-hidden bg-card shadow-float"
       onMouseMove={(event) => {
-        if (selectingRef.current) return;
         const rect = event.currentTarget.getBoundingClientRect();
         const element = document.elementFromPoint(event.clientX, event.clientY);
         const span = element?.closest<HTMLElement>(
           ".react-pdf__Page__textContent span",
         );
-        if ((span ?? null) === hoveredSpanRef.current) return;
-        hoveredSpanRef.current = span ?? null;
-        const line = span ? lineAtSpan(event.currentTarget, span, page) : null;
-        hoverSelectionRef.current = line;
-        setHoverSelection(line);
+        const hit = span
+          ? sentenceAtPoint(
+              event.currentTarget,
+              textLayerModelRef.current,
+              span,
+              event.clientX,
+              event.clientY,
+            )
+          : null;
+        const modifierPressed = event.metaKey || event.ctrlKey;
+
+        if (modifierPressed) {
+          if (!modifierActiveRef.current) {
+            modifierActiveRef.current = true;
+            modifierSelectionRef.current =
+              activeFocus?.id === "current-selection" ? activeFocus : null;
+            sweptSentenceKeysRef.current.clear();
+          }
+          if (hit && !sweptSentenceKeysRef.current.has(hit.key)) {
+            sweptSentenceKeysRef.current.add(hit.key);
+            const nextSelection = mergeSelections(
+              modifierSelectionRef.current,
+              hit.selection,
+            );
+            modifierSelectionRef.current = nextSelection;
+            onSelectionChange(nextSelection);
+          }
+        } else if (modifierActiveRef.current) {
+          modifierActiveRef.current = false;
+          modifierSelectionRef.current = null;
+          sweptSentenceKeysRef.current.clear();
+        }
+
+        if (hit?.key === hoveredSentenceKeyRef.current) return;
+        hoveredSentenceKeyRef.current = hit?.key ?? null;
+        setHoverSelection(hit?.selection ?? null);
         onPointerChange({
           x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
           y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
-          text: line?.text.slice(0, 320) || undefined,
+          text: hit?.selection.text.slice(0, 320) || undefined,
         });
       }}
       onMouseLeave={() => {
-        hoveredSpanRef.current = null;
-        hoverSelectionRef.current = null;
+        hoveredSentenceKeyRef.current = null;
+        modifierActiveRef.current = false;
+        modifierSelectionRef.current = null;
+        sweptSentenceKeysRef.current.clear();
         setHoverSelection(null);
         onPointerChange(null);
       }}
-      onMouseUp={finishSelection}
     >
       <Document
         key={attempt}
@@ -548,11 +640,7 @@ export default function PdfReader({
       <HighlightLayer
         highlights={highlights}
         hoverSelection={hoverSelection}
-        activeFocus={
-          liveSelection
-            ? { id: "current-selection", ...liveSelection }
-            : activeFocus
-        }
+        activeFocus={activeFocus}
       />
       {pointer && (
         <div
