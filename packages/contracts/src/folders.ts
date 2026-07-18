@@ -7,6 +7,8 @@ export const folderSchema = z.object({
   id: folderIdSchema,
   parentId: folderIdSchema.nullable(),
   name: folderNameSchema,
+  bookCount: z.number().int().nonnegative().optional(),
+  childStackCount: z.number().int().nonnegative().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });

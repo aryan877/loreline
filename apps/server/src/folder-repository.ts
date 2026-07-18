@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, isNull, type InferSelectModel } from "drizzle-orm";
+import { and, asc, eq, isNull, sql, type InferSelectModel } from "drizzle-orm";
 import { Effect } from "effect";
 import { books, folders } from "@loreline/database/schema";
 import { HttpError } from "@/http";
@@ -110,7 +110,26 @@ export const FolderRepository = {
 
       return yield* Effect.tryPromise(() =>
         db
-          .select()
+          .select({
+            id: folders.id,
+            userId: folders.userId,
+            parentId: folders.parentId,
+            name: folders.name,
+            createdAt: folders.createdAt,
+            updatedAt: folders.updatedAt,
+            bookCount: sql<number>`(
+              select count(*)::int
+              from "books"
+              where "books"."folder_id" = ${folders.id}
+                and "books"."user_id" = ${userId}
+            )`,
+            childStackCount: sql<number>`(
+              select count(*)::int
+              from "folders" as child_folders
+              where child_folders."parent_id" = ${folders.id}
+                and child_folders."user_id" = ${userId}
+            )`,
+          })
           .from(folders)
           .where(
             and(
