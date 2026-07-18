@@ -1,1 +1,1 @@
-export { GET, PATCH } from "@/handlers/book";
+export { DELETE, GET, PATCH } from "@/handlers/book";

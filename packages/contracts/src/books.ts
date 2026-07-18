@@ -80,6 +80,11 @@ export type ReaderBook = z.infer<typeof readerBookSchema>;
 export const bookResponseSchema = z.object({ book: readerBookSchema });
 export type BookResponse = z.infer<typeof bookResponseSchema>;
 
+export const deleteBookResponseSchema = z.object({
+  book: z.object({ id: bookIdSchema }),
+});
+export type DeleteBookResponse = z.infer<typeof deleteBookResponseSchema>;
+
 export const uploadBookResponseSchema = z.object({
   book: readerBookSchema
     .pick({

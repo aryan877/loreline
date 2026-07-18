@@ -6,7 +6,9 @@ import {
   bookProgressInputSchema,
   bookProgressResponseSchema,
   bookResponseSchema,
+  deleteBookResponseSchema,
 } from "@loreline/contracts/books";
+import { BookService } from "@/book-service";
 import { ownedBook } from "@/book-utils";
 import { apiError, requireSession } from "@/http";
 import { DatabaseService, runServerEffect } from "@/services";
@@ -33,6 +35,23 @@ export async function GET(
       },
     });
     return NextResponse.json(response);
+  } catch (error) {
+    return apiError(error);
+  }
+}
+
+export async function DELETE(
+  _: Request,
+  context: { params: Promise<{ bookId: string }> },
+) {
+  try {
+    const session = await requireSession();
+    const { bookId } = await context.params;
+    const book = await runServerEffect(
+      BookService.deleteBook(session.user.id, bookId),
+    );
+
+    return NextResponse.json(deleteBookResponseSchema.parse({ book }));
   } catch (error) {
     return apiError(error);
   }

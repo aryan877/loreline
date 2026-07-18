@@ -55,6 +55,7 @@ import {
   MAX_BOOK_FILE_SIZE_LABEL,
   type BookListItem,
   type BooksPageResponse,
+  type DeleteBookResponse,
   type UploadBookResponse,
 } from "@loreline/contracts/books";
 import type { Folder, FolderTreeNode } from "@loreline/contracts/folders";
@@ -150,6 +151,9 @@ export function LibraryView() {
   const [renameName, setRenameName] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Folder | null>(null);
+  const [deleteBookOpen, setDeleteBookOpen] = useState(false);
+  const [deleteBookTarget, setDeleteBookTarget] =
+    useState<BookListItem | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState<BookListItem | null>(null);
   const [moveDestination, setMoveDestination] = useState<string | null>(null);
@@ -286,6 +290,20 @@ export function LibraryView() {
       }
       setDeleteTarget(null);
       setDeleteOpen(false);
+    },
+  });
+  const deleteBookMutation = useMutation({
+    mutationFn: (bookId: string) =>
+      apiJson<DeleteBookResponse>(`/api/books/${bookId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["books", folderId],
+        exact: true,
+      });
+      setDeleteBookTarget(null);
+      setDeleteBookOpen(false);
     },
   });
   const moveBookMutation = useMutation({
@@ -448,6 +466,16 @@ export function LibraryView() {
   function deleteFolder() {
     if (!deleteTarget) return;
     deleteFolderMutation.mutate(deleteTarget.id);
+  }
+
+  function openDeleteBook(book: BookListItem) {
+    setDeleteBookTarget(book);
+    setDeleteBookOpen(true);
+  }
+
+  function deleteBook() {
+    if (!deleteBookTarget) return;
+    deleteBookMutation.mutate(deleteBookTarget.id);
   }
 
   function openMove(book: BookListItem) {
@@ -629,6 +657,46 @@ export function LibraryView() {
                     <LoaderCircle className="animate-spin" />
                   )}
                   Delete Stack
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={deleteBookOpen}
+            onOpenChange={(nextOpen) => {
+              setDeleteBookOpen(nextOpen);
+              if (!nextOpen) setDeleteBookTarget(null);
+            }}
+          >
+            <DialogContent className="rounded-3xl p-6 sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="text-3xl font-semibold tracking-[-0.04em]">
+                  Delete Book
+                </DialogTitle>
+                <DialogDescription>
+                  Delete &quot;{deleteBookTarget?.title}&quot;? This cannot be
+                  undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="mt-6">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setDeleteBookOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={deleteBookMutation.isPending}
+                  onClick={deleteBook}
+                >
+                  {deleteBookMutation.isPending && (
+                    <LoaderCircle className="animate-spin" />
+                  )}
+                  Delete Book
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -1127,6 +1195,13 @@ export function LibraryView() {
                     <DropdownMenuItem onClick={() => openMove(book)}>
                       <FolderIcon />
                       Move to...
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => openDeleteBook(book)}
+                    >
+                      <Trash2 />
+                      Delete
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

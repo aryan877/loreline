@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -33,6 +34,7 @@ export class StorageService extends Context.Tag("Loreline/Storage")<
       contentType: string,
     ) => Effect.Effect<void, ServiceError>;
     readonly get: (key: string) => Effect.Effect<Uint8Array, ServiceError>;
+    readonly delete: (key: string) => Effect.Effect<void, ServiceError>;
     readonly createUploadUrl: (
       key: string,
       size: number,
@@ -83,6 +85,19 @@ export const StorageLive = Layer.effect(
             return new Uint8Array(await result.Body.transformToByteArray());
           },
           catch: (cause) => new ServiceError({ operation: "r2.get", cause }),
+        }),
+      delete: (key: string) =>
+        Effect.tryPromise({
+          try: () =>
+            client
+              .send(
+                new DeleteObjectCommand({
+                  Bucket: config.r2BucketName,
+                  Key: key,
+                }),
+              )
+              .then(() => undefined),
+          catch: (cause) => new ServiceError({ operation: "r2.delete", cause }),
         }),
       createUploadUrl: (key: string, size: number, contentType: string) =>
         Effect.tryPromise({
