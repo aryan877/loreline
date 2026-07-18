@@ -84,17 +84,14 @@ import type {
   ReaderSelection,
 } from "@loreline/contracts/reader";
 
-const PdfReader = dynamic(
-  () => import("@/components/reader/pdf-reader"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="grid min-h-[32rem] w-full place-items-center bg-reader-paper">
-        <LoaderCircle className="size-5 animate-spin text-coral" />
-      </div>
-    ),
-  },
-);
+const PdfReader = dynamic(() => import("@/components/reader/pdf-reader"), {
+  ssr: false,
+  loading: () => (
+    <div className="grid min-h-[32rem] w-full place-items-center bg-reader-paper">
+      <LoaderCircle className="size-5 animate-spin text-coral" />
+    </div>
+  ),
+});
 
 async function getBook(bookId: string): Promise<ReaderBook> {
   const data = await apiJson<BookResponse>(`/api/books/${bookId}`);
@@ -137,40 +134,102 @@ function VoiceOrb({ state }: { state: string }) {
   );
 }
 
+type ConfirmationRequest = {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  confirm: () => Promise<void>;
+};
+
+function ConfirmationDialog({
+  request,
+  onDismiss,
+}: {
+  request: ConfirmationRequest | null;
+  onDismiss: () => void;
+}) {
+  const [pending, setPending] = useState(false);
+
+  const confirm = async () => {
+    if (!request) return;
+    setPending(true);
+    try {
+      await request.confirm();
+      onDismiss();
+    } catch {
+      // TanStack Query's global mutation handler owns user-facing failures.
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={Boolean(request)}
+      onOpenChange={(open) => {
+        if (!open && !pending) onDismiss();
+      }}
+    >
+      <DialogContent className="rounded-2xl sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="font-display text-2xl">
+            {request?.title}
+          </DialogTitle>
+          <DialogDescription className="leading-relaxed">
+            {request?.description}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" disabled={pending} onClick={onDismiss}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={pending}
+            onClick={() => void confirm()}
+          >
+            {pending ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
+            {request?.confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SavedHighlightCard({
   highlight,
+  isCurrentPage,
   onOpen,
   onUpdate,
   onDelete,
 }: {
   highlight: Highlight;
+  isCurrentPage: boolean;
   onOpen: () => void;
   onUpdate: (note: string | null) => Promise<void>;
-  onDelete: () => Promise<void>;
+  onDelete: () => void;
 }) {
   const [note, setNote] = useState(highlight.note ?? "");
 
   const changed = note.trim() !== (highlight.note ?? "");
   return (
-    <details
-      className="group min-w-0 max-w-full overflow-hidden rounded-2xl border bg-card shadow-sm open:shadow-float"
-    >
-      <summary className="flex cursor-pointer list-none items-start gap-3 p-3.5 outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-reader-highlight/60 text-[0.62rem] font-semibold text-foreground">
+    <article className="flex h-[22rem] w-72 max-w-[calc(100vw-5rem)] shrink-0 snap-start flex-col overflow-hidden rounded-2xl border bg-card shadow-sm">
+      <div className="flex items-start gap-3 border-b px-3.5 py-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-reader-highlight/60 text-[0.64rem] font-semibold text-foreground">
           {highlight.page}
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
-            {highlight.note ? "Passage with note" : "Saved passage"}
+            {isCurrentPage ? "This page" : `Page ${highlight.page}`}
           </span>
-          <span className="mt-1.5 line-clamp-2 block break-words text-xs leading-relaxed text-foreground group-open:hidden [overflow-wrap:anywhere]">
-            “{highlight.text}”
+          <span className="mt-0.5 block truncate text-xs font-semibold text-foreground">
+            {highlight.note ? "Note and highlight" : "Saved highlight"}
           </span>
         </span>
-        <ChevronDown className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="min-w-0 border-t bg-paper/55 p-3.5">
-        <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words pr-1 text-xs leading-relaxed text-ink-soft [overflow-wrap:anywhere]">
+      </div>
+      <div className="min-h-0 flex-1 bg-paper/55 p-3.5">
+        <p className="scrollbar-none max-h-24 overflow-y-auto whitespace-pre-wrap break-words pr-1 text-xs leading-relaxed text-ink-soft [overflow-wrap:anywhere]">
           “{highlight.text}”
         </p>
         <Textarea
@@ -178,32 +237,32 @@ function SavedHighlightCard({
           value={note}
           onChange={(event) => setNote(event.target.value.slice(0, 4000))}
           placeholder="Add a note to this passage…"
-          className="mt-3 min-h-24 w-full max-w-full resize-none bg-background text-xs"
+          className="mt-3 min-h-28 w-full max-w-full resize-none bg-background text-xs"
         />
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={`Delete highlight on page ${highlight.page}`}
-            onClick={() => void onDelete()}
-          >
-            <Trash2 />
-            Remove
-          </Button>
-          <Button variant="outline" size="sm" onClick={onOpen}>
-            Show on page
-          </Button>
-          <Button
-            size="sm"
-            className="ml-auto"
-            disabled={!changed}
-            onClick={() => void onUpdate(note.trim() || null)}
-          >
-            Save note
-          </Button>
-        </div>
       </div>
-    </details>
+      <div className="flex flex-wrap items-center gap-1.5 border-t bg-card p-2.5">
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Delete highlight on page ${highlight.page}`}
+          onClick={onDelete}
+        >
+          <Trash2 />
+          Remove
+        </Button>
+        <Button variant="outline" size="sm" onClick={onOpen}>
+          Show on page
+        </Button>
+        <Button
+          size="sm"
+          className="ml-auto"
+          disabled={!changed}
+          onClick={() => void onUpdate(note.trim() || null)}
+        >
+          Save note
+        </Button>
+      </div>
+    </article>
   );
 }
 
@@ -220,7 +279,10 @@ type SideboardProps = {
   bookmarks: SavedBookmark[];
   readerControls: ReaderControls;
   onOpenHighlight: (highlight: Highlight) => void;
-  onUpdateHighlight: (highlightId: string, note: string | null) => Promise<void>;
+  onUpdateHighlight: (
+    highlightId: string,
+    note: string | null,
+  ) => Promise<void>;
   onDeleteHighlight: (highlightId: string) => Promise<void>;
   onOpenBookmark: (page: number) => void;
   onDeleteBookmark: (bookmarkId: string) => Promise<void>;
@@ -244,6 +306,10 @@ function Sideboard({
   onOpenBookmark,
   onDeleteBookmark,
 }: SideboardProps) {
+  const [notesOpen, setNotesOpen] = useState(true);
+  const [deleteRequest, setDeleteRequest] =
+    useState<ConfirmationRequest | null>(null);
+  const notesRailRef = useRef<HTMLDivElement>(null);
   const addBoardItem = useCallback(
     (item: BoardItem) => setItems((current) => [...current, item]),
     [setItems],
@@ -286,51 +352,30 @@ function Sideboard({
           : "Start voice";
   const hasWorkspaceContent =
     items.length > 0 || highlights.length > 0 || bookmarks.length > 0;
-  const currentPageHighlights = highlights.filter(
-    (highlight) => highlight.page === page,
-  );
-  const otherHighlights = highlights.filter(
-    (highlight) => highlight.page !== page,
+  const orderedHighlights = useMemo(
+    () =>
+      [...highlights].sort((left, right) => {
+        const leftIsCurrent = left.page === page;
+        const rightIsCurrent = right.page === page;
+        if (leftIsCurrent !== rightIsCurrent) return leftIsCurrent ? -1 : 1;
+        return left.page - right.page;
+      }),
+    [highlights, page],
   );
 
   return (
     <aside className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-l bg-card">
-      <div className="flex min-w-0 items-center justify-between border-b px-4 py-3.5">
+      <div className="min-w-0 border-b px-4 py-3.5">
         <div className="min-w-0">
           <p className="text-sm font-semibold">Workspace</p>
           <p className="truncate text-[0.7rem] text-muted-foreground">
             Board, notes, and page {page}
           </p>
         </div>
-        <span
-          className={cn(
-            "size-2 rounded-full",
-            voice.connected ? "bg-coral" : "bg-muted-foreground/35",
-          )}
-        />
       </div>
 
       <ScrollArea className="min-h-0 min-w-0 flex-1 bg-paper/45">
         <div className="dot-grid min-h-full min-w-0 space-y-6 p-4">
-          {(selectedText || pointer?.text) && (
-            <section className="flex min-w-0 items-start gap-2.5 rounded-2xl border bg-coral-soft/70 px-3.5 py-3 text-xs leading-relaxed text-ink-soft shadow-sm">
-              <span className="mt-1 size-1.5 shrink-0 rounded-full bg-coral" />
-              <div className="min-w-0">
-                <p className="font-semibold text-foreground">
-                  {selectedText ? "Selected passage" : "Pointing at"}
-                </p>
-                <p className="scrollbar-none mt-1 max-h-24 overflow-y-auto break-words pr-1 [overflow-wrap:anywhere]">
-                  “{selectedText || pointer?.text}”
-                </p>
-                {selectedText && (
-                  <p className="mt-2 text-[0.64rem] font-medium text-muted-foreground">
-                    Hold Cmd or Ctrl and move across sentences to add them.
-                  </p>
-                )}
-              </div>
-            </section>
-          )}
-
           {!hasWorkspaceContent && (
             <div className="dot-grid flex min-h-64 flex-col items-center justify-center rounded-2xl border bg-paper px-6 text-center">
               <span className="grid size-11 place-items-center rounded-xl bg-card shadow-sm">
@@ -371,11 +416,18 @@ function Sideboard({
                       <button
                         aria-label="Remove board item"
                         onClick={() =>
-                          setItems((current) =>
-                            current.filter(
-                              (candidate) => candidate.id !== item.id,
-                            ),
-                          )
+                          setDeleteRequest({
+                            title: "Remove this board item?",
+                            description: `“${item.title}” will be removed from this workspace.`,
+                            confirmLabel: "Remove item",
+                            confirm: async () => {
+                              setItems((current) =>
+                                current.filter(
+                                  (candidate) => candidate.id !== item.id,
+                                ),
+                              );
+                            },
+                          })
                         }
                         className="absolute right-2 top-2 z-10 grid size-7 place-items-center rounded-full bg-background/80 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                       >
@@ -441,7 +493,14 @@ function Sideboard({
                     <button
                       aria-label={`Delete bookmark on page ${bookmark.page}`}
                       className="grid size-7 place-items-center rounded-full text-muted-foreground hover:text-foreground"
-                      onClick={() => void onDeleteBookmark(bookmark.id)}
+                      onClick={() =>
+                        setDeleteRequest({
+                          title: "Remove this bookmark?",
+                          description: `Page ${bookmark.page} will no longer be bookmarked.`,
+                          confirmLabel: "Remove bookmark",
+                          confirm: () => onDeleteBookmark(bookmark.id),
+                        })
+                      }
                     >
                       <X className="size-3" />
                     </button>
@@ -451,51 +510,103 @@ function Sideboard({
             </section>
           )}
 
-          {currentPageHighlights.length > 0 && (
-            <section>
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-foreground">
-                  On this page
-                </p>
-                <span className="rounded-full bg-reader-highlight/55 px-2 py-0.5 text-[0.6rem] font-semibold text-foreground">
-                  {currentPageHighlights.length}
+          {orderedHighlights.length > 0 && (
+            <section className="overflow-hidden rounded-2xl border bg-card/90 shadow-sm">
+              <button
+                type="button"
+                aria-expanded={notesOpen}
+                aria-controls="saved-notes-panel"
+                onClick={() => setNotesOpen((open) => !open)}
+                className="flex w-full items-center gap-3 px-3.5 py-3 text-left outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              >
+                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-reader-highlight/55">
+                  <StickyNote className="size-4" />
                 </span>
-              </div>
-              <div className="min-w-0 space-y-2.5">
-                {currentPageHighlights.map((highlight) => (
-                  <SavedHighlightCard
-                    key={highlight.id}
-                    highlight={highlight}
-                    onOpen={() => onOpenHighlight(highlight)}
-                    onUpdate={(note) => onUpdateHighlight(highlight.id, note)}
-                    onDelete={() => onDeleteHighlight(highlight.id)}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {otherHighlights.length > 0 && (
-            <section>
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
-                  Other pages
-                </p>
-                <span className="text-[0.62rem] text-muted-foreground">
-                  {otherHighlights.length} saved
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">
+                    Saved notes
+                  </span>
+                  <span className="block text-[0.66rem] text-muted-foreground">
+                    {orderedHighlights.length} saved passage
+                    {orderedHighlights.length === 1 ? "" : "s"}
+                  </span>
                 </span>
-              </div>
-              <div className="min-w-0 space-y-2.5">
-                {otherHighlights.map((highlight) => (
-                  <SavedHighlightCard
-                    key={highlight.id}
-                    highlight={highlight}
-                    onOpen={() => onOpenHighlight(highlight)}
-                    onUpdate={(note) => onUpdateHighlight(highlight.id, note)}
-                    onDelete={() => onDeleteHighlight(highlight.id)}
-                  />
-                ))}
-              </div>
+                <ChevronDown
+                  className={cn(
+                    "size-4 shrink-0 text-muted-foreground transition-transform",
+                    notesOpen && "rotate-180",
+                  )}
+                />
+              </button>
+              {notesOpen && (
+                <div id="saved-notes-panel" className="border-t bg-paper/55">
+                  <div className="flex items-center justify-between gap-3 px-3.5 pt-3">
+                    <p className="font-mono text-[0.58rem] uppercase tracking-[0.14em] text-muted-foreground">
+                      Swipe sideways to browse
+                    </p>
+                    {orderedHighlights.length > 1 && (
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Previous saved note"
+                          onClick={() =>
+                            notesRailRef.current?.scrollBy({
+                              left: -304,
+                              behavior: "smooth",
+                            })
+                          }
+                        >
+                          <ChevronLeft />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Next saved note"
+                          onClick={() =>
+                            notesRailRef.current?.scrollBy({
+                              left: 304,
+                              behavior: "smooth",
+                            })
+                          }
+                        >
+                          <ChevronRight />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <div
+                    ref={notesRailRef}
+                    className="scrollbar-none flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain px-3.5 pb-3.5 pt-2 scroll-smooth touch-pan-x"
+                  >
+                    {orderedHighlights.map((highlight) => (
+                      <SavedHighlightCard
+                        key={highlight.id}
+                        highlight={highlight}
+                        isCurrentPage={highlight.page === page}
+                        onOpen={() => onOpenHighlight(highlight)}
+                        onUpdate={(note) =>
+                          onUpdateHighlight(highlight.id, note)
+                        }
+                        onDelete={() =>
+                          setDeleteRequest({
+                            title: highlight.note
+                              ? "Remove this saved note?"
+                              : "Remove this highlight?",
+                            description: highlight.note
+                              ? "The highlight and its attached note will be permanently removed."
+                              : "This saved highlight will be permanently removed.",
+                            confirmLabel: highlight.note
+                              ? "Remove note"
+                              : "Remove highlight",
+                            confirm: () => onDeleteHighlight(highlight.id),
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
           )}
         </div>
@@ -543,6 +654,10 @@ function Sideboard({
           <p className="px-1 text-[0.68rem] text-destructive">{voice.error}</p>
         )}
       </div>
+      <ConfirmationDialog
+        request={deleteRequest}
+        onDismiss={() => setDeleteRequest(null)}
+      />
     </aside>
   );
 }
@@ -589,8 +704,9 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   const [pointer, setPointer] = useState<PointerContext>(null);
   const [selection, setSelection] = useState<ReaderSelection | null>(null);
   const [activeFocus, setActiveFocus] = useState<ReaderFocus | null>(null);
-  const [focusRequest, setFocusRequest] =
-    useState<ReaderFocusRequest | null>(null);
+  const [focusRequest, setFocusRequest] = useState<ReaderFocusRequest | null>(
+    null,
+  );
   const pendingFocusRef = useRef<{
     id: string;
     resolve: (selection: ReaderSelection | null) => void;
@@ -604,14 +720,19 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     width: 760,
     height: 900,
   });
-  const [noteSelection, setNoteSelection] =
-    useState<ReaderSelection | null>(null);
+  const [noteSelection, setNoteSelection] = useState<ReaderSelection | null>(
+    null,
+  );
   const [noteDraft, setNoteDraft] = useState("");
+  const [readerConfirmation, setReaderConfirmation] =
+    useState<ConfirmationRequest | null>(null);
 
   const resizeSideboard = useCallback((clientX: number) => {
     const maxWidth = Math.max(320, Math.min(720, window.innerWidth - 480));
     setSideboardWidth(
-      Math.round(Math.min(maxWidth, Math.max(320, window.innerWidth - clientX))),
+      Math.round(
+        Math.min(maxWidth, Math.max(320, window.innerWidth - clientX)),
+      ),
     );
   }, []);
 
@@ -766,9 +887,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
         ["highlights", bookId],
         (current = []) => current.filter((item) => item.id !== deletedId),
       );
-      setActiveFocus((current) =>
-        current?.id === deletedId ? null : current,
-      );
+      setActiveFocus((current) => (current?.id === deletedId ? null : current));
     },
   });
   const createBookmarkMutation = useMutation({
@@ -789,7 +908,9 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
         (current = []) =>
           current.some((item) => item.id === created.id)
             ? current
-            : [...current, created].sort((left, right) => left.page - right.page),
+            : [...current, created].sort(
+                (left, right) => left.page - right.page,
+              ),
       );
     },
   });
@@ -1014,9 +1135,19 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
                     deleteBookmarkMutation.isPending
                   }
                   onClick={() => {
-                    if (currentBookmark)
-                      deleteBookmarkMutation.mutate(currentBookmark.id);
-                    else createBookmarkMutation.mutate(page);
+                    if (!currentBookmark) {
+                      createBookmarkMutation.mutate(page);
+                      return;
+                    }
+                    const bookmarkId = currentBookmark.id;
+                    setReaderConfirmation({
+                      title: "Remove this bookmark?",
+                      description: `Page ${page} will no longer be bookmarked.`,
+                      confirmLabel: "Remove bookmark",
+                      confirm: async () => {
+                        await deleteBookmarkMutation.mutateAsync(bookmarkId);
+                      },
+                    });
                   }}
                 />
               }
@@ -1049,9 +1180,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
             size="icon-sm"
             aria-label="Zoom in"
             onClick={() =>
-              setZoom((value) =>
-                Math.min(4, Number((value + 0.05).toFixed(2))),
-              )
+              setZoom((value) => Math.min(4, Number((value + 0.05).toFixed(2))))
             }
             disabled={zoom >= 4}
           >
@@ -1088,9 +1217,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
             ? "xl:grid-cols-[minmax(0,1fr)_var(--workspace-width)]"
             : "grid-cols-1",
         )}
-        style={
-          { "--workspace-width": `${sideboardWidth}px` } as CSSProperties
-        }
+        style={{ "--workspace-width": `${sideboardWidth}px` } as CSSProperties}
       >
         <div className="relative min-h-0 overflow-hidden">
           <div
@@ -1123,7 +1250,8 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
           {selection && (
             <div className="absolute inset-x-3 bottom-4 z-30 mx-auto flex max-w-xl items-center gap-2 rounded-2xl border bg-background/95 p-2 pl-3 shadow-float backdrop-blur-xl">
               <p className="min-w-0 flex-1 text-xs font-medium text-ink-soft">
-                {selection.text.split(/\s+/).length} words · Hold Cmd/Ctrl and move to add
+                {selection.text.split(/\s+/).length} words · Hold Cmd/Ctrl and
+                move to add
               </p>
               <Button
                 variant="secondary"
@@ -1220,7 +1348,9 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
           <Textarea
             autoFocus
             value={noteDraft}
-            onChange={(event) => setNoteDraft(event.target.value.slice(0, 4000))}
+            onChange={(event) =>
+              setNoteDraft(event.target.value.slice(0, 4000))
+            }
             placeholder="What do you want to remember?"
             className="min-h-32 resize-none"
           />
@@ -1246,6 +1376,10 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ConfirmationDialog
+        request={readerConfirmation}
+        onDismiss={() => setReaderConfirmation(null)}
+      />
     </div>
   );
 }

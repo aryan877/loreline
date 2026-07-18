@@ -21,10 +21,7 @@ import type {
   ReaderSelection,
 } from "@loreline/contracts/reader";
 import { Button } from "@/components/ui/button";
-import {
-  findMatchingTextRunRange,
-  sentenceTextRanges,
-} from "@/lib/pdf-text";
+import { findMatchingTextRunRange, sentenceTextRanges } from "@/lib/pdf-text";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -52,7 +49,10 @@ type PdfReaderProps = {
   onScreenshotChange: (screenshot: string | null) => void;
   onPointerChange: (pointer: PointerContext) => void;
   onSelectionChange: (selection: ReaderSelection | null) => void;
-  onFocusResolved: (request: ReaderFocusRequest, rects: HighlightRect[]) => void;
+  onFocusResolved: (
+    request: ReaderFocusRequest,
+    rects: HighlightRect[],
+  ) => void;
 };
 
 function normalizedRects(
@@ -265,8 +265,7 @@ function sentenceAtPoint(
     ) ?? null;
   if (!sentence) return null;
   const cachedSelection = model.selectionBySentence.get(sentence.key);
-  if (cachedSelection)
-    return { key: sentence.key, selection: cachedSelection };
+  if (cachedSelection) return { key: sentence.key, selection: cachedSelection };
   const startEntry = entryAtOffset(model.entries, sentence.start);
   const endEntry = entryAtOffset(model.entries, sentence.end - 1);
   if (!startEntry || !endEntry) return null;
@@ -274,7 +273,10 @@ function sentenceAtPoint(
   const range = document.createRange();
   range.setStart(
     startEntry.node,
-    Math.max(0, Math.min(startEntry.node.length, sentence.start - startEntry.start)),
+    Math.max(
+      0,
+      Math.min(startEntry.node.length, sentence.start - startEntry.start),
+    ),
   );
   range.setEnd(
     endEntry.node,
@@ -381,19 +383,16 @@ export default function PdfReader({
     width: number;
     height: number;
   } | null>(null);
-  const [hoverSelection, setHoverSelection] =
-    useState<ReaderSelection | null>(null);
-  const hasError =
-    failedPage?.fileUrl === fileUrl && failedPage.page === page;
+  const [hoverSelection, setHoverSelection] = useState<ReaderSelection | null>(
+    null,
+  );
+  const hasError = failedPage?.fileUrl === fileUrl && failedPage.page === page;
   const currentPageSize =
     pageSize?.fileUrl === fileUrl && pageSize.page === page ? pageSize : null;
   const aspectRatio = currentPageSize
     ? currentPageSize.width / currentPageSize.height
     : 1 / Math.SQRT2;
-  const fittedWidth = Math.min(
-    viewport.width,
-    viewport.height * aspectRatio,
-  );
+  const fittedWidth = Math.min(viewport.width, viewport.height * aspectRatio);
   const renderWidth = Math.max(1, Math.floor(fittedWidth * zoom));
   const renderHeight = Math.max(1, Math.floor(renderWidth / aspectRatio));
 
@@ -432,9 +431,9 @@ export default function PdfReader({
     if (!match) return [];
     const pageRect = pageNode.getBoundingClientRect();
     return normalizedRects(
-      spans.slice(match.start, match.end + 1).map((span) =>
-        span.getBoundingClientRect(),
-      ),
+      spans
+        .slice(match.start, match.end + 1)
+        .map((span) => span.getBoundingClientRect()),
       pageRect,
     );
   }, []);
@@ -647,8 +646,7 @@ export default function PdfReader({
           className="pointer-events-none absolute z-20"
           style={{ left: `${pointer.x * 100}%`, top: `${pointer.y * 100}%` }}
         >
-          <span className="absolute -left-2 -top-2 size-4 rounded-full border-2 border-card bg-coral shadow-sm" />
-          <span className="absolute left-2 top-2 whitespace-nowrap rounded-full bg-primary px-2 py-0.5 text-[0.6rem] font-semibold text-primary-foreground shadow-sm">
+          <span className="absolute left-1 top-1 whitespace-nowrap rounded-full bg-primary px-2 py-0.5 text-[0.6rem] font-semibold text-primary-foreground shadow-sm">
             You&apos;re here
           </span>
         </div>
