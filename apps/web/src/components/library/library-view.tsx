@@ -8,9 +8,9 @@ import {
 } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import {
-  ArrowLeft,
   ArrowRight,
   BookOpen,
+  ChevronRight,
   FileText,
   Folder as FolderIcon,
   LoaderCircle,
@@ -65,6 +65,14 @@ async function getFolders(
   return apiJson<{ folders: Folder[] }>(`/api/folders?${params}`);
 }
 
+async function getFolderBreadcrumb(
+  folderId: string,
+): Promise<{ breadcrumb: Folder[] }> {
+  return apiJson<{ breadcrumb: Folder[] }>(
+    `/api/folders/${folderId}/breadcrumb`,
+  );
+}
+
 function BookCover({ title, index }: { title: string; index: number }) {
   const tones = ["bg-coral-soft", "bg-sage-soft", "bg-sky-soft", "bg-accent"];
   return (
@@ -100,6 +108,11 @@ export function LibraryView() {
   const foldersQuery = useQuery({
     queryKey: ["folders", folderId],
     queryFn: () => getFolders(folderId),
+  });
+  const breadcrumbQuery = useQuery({
+    queryKey: ["folderBreadcrumb", folderId],
+    queryFn: () => getFolderBreadcrumb(folderId!),
+    enabled: !!folderId,
   });
   const booksQuery = useInfiniteQuery({
     queryKey: ["books", folderId],
@@ -153,6 +166,7 @@ export function LibraryView() {
     [booksQuery.data],
   );
   const folders = foldersQuery.data?.folders ?? [];
+  const breadcrumb = breadcrumbQuery.data?.breadcrumb ?? [];
   const filtered = books.filter((book) =>
     `${book.title} ${book.author ?? ""}`
       .toLowerCase()
@@ -319,17 +333,39 @@ export function LibraryView() {
         </Badge>
       </div>
 
-      {folderId && (
-        <Button
-          className="mt-4"
-          size="sm"
-          variant="ghost"
+      <div className="mt-4 flex min-h-8 items-center gap-1 text-sm text-muted-foreground">
+        <button
+          type="button"
+          className="font-medium text-foreground hover:text-brand-ink"
           onClick={returnToShelf}
         >
-          <ArrowLeft />
-          Back to Shelf
-        </Button>
-      )}
+          Shelf
+        </button>
+        {folderId && breadcrumbQuery.isPending ? (
+          <span className="ml-2 h-4 w-24 animate-pulse rounded bg-muted" />
+        ) : folderId && breadcrumbQuery.isError ? (
+          <span className="ml-2">Folder path unavailable.</span>
+        ) : (
+          breadcrumb.map((folder, index) => (
+            <span key={folder.id} className="flex items-center gap-1">
+              <ChevronRight className="size-3.5" />
+              {index === breadcrumb.length - 1 ? (
+                <span className="truncate font-medium text-foreground">
+                  {folder.name}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="truncate hover:text-foreground"
+                  onClick={() => selectFolder(folder.id)}
+                >
+                  {folder.name}
+                </button>
+              )}
+            </span>
+          ))
+        )}
+      </div>
 
       {foldersQuery.isPending ? (
         <div className="grid grid-cols-2 gap-3 py-6 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
