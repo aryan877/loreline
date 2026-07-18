@@ -115,9 +115,7 @@ export const folders = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    parentId: uuid("parent_id").references((): AnyPgColumn => folders.id, {
-      onDelete: "cascade",
-    }),
+    parentId: uuid("parent_id").references((): AnyPgColumn => folders.id),
     name: text("name").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
