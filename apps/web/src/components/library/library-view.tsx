@@ -11,10 +11,12 @@ import {
   ArrowRight,
   BookOpen,
   ChevronRight,
+  Ellipsis,
   FileText,
   Folder as FolderIcon,
   FolderPlus,
   LoaderCircle,
+  Pencil,
   Plus,
   Search,
   UploadCloud,
@@ -35,6 +37,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
 import { apiJson } from "@/lib/api-client";
 import { toUserMessage, UserFacingError } from "@/lib/errors";
@@ -104,6 +112,9 @@ export function LibraryView() {
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<Folder | null>(null);
+  const [renameName, setRenameName] = useState("");
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -180,6 +191,29 @@ export function LibraryView() {
       setFolderOpen(false);
     },
   });
+  const renameFolderMutation = useMutation({
+    mutationFn: ({ folderId, name }: { folderId: string; name: string }) =>
+      apiJson<{ folder: Folder }>(`/api/folders/${folderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["folders", folderId],
+        exact: true,
+      });
+      if (folderId) {
+        await queryClient.invalidateQueries({
+          queryKey: ["folderBreadcrumb", folderId],
+          exact: true,
+        });
+      }
+      setRenameName("");
+      setRenameTarget(null);
+      setRenameOpen(false);
+    },
+  });
   const books = useMemo(
     () => booksQuery.data?.pages.flatMap((page) => page.books) ?? [],
     [booksQuery.data],
@@ -247,6 +281,23 @@ export function LibraryView() {
     createFolderMutation.mutate(name);
   }
 
+  function openRename(folder: Folder) {
+    setRenameTarget(folder);
+    setRenameName(folder.name);
+    setRenameOpen(true);
+  }
+
+  function renameFolder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = renameName.trim();
+    if (!name) {
+      showErrorToast(new UserFacingError("Enter a stack name."));
+      return;
+    }
+    if (!renameTarget) return;
+    renameFolderMutation.mutate({ folderId: renameTarget.id, name });
+  }
+
   return (
     <main className="mx-auto max-w-[80rem] px-4 py-10 sm:px-0 sm:py-16">
       <div className="flex flex-col justify-between gap-7 sm:flex-row sm:items-end">
@@ -306,6 +357,57 @@ export function LibraryView() {
                       <LoaderCircle className="animate-spin" />
                     )}
                     Create Stack
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={renameOpen}
+            onOpenChange={(nextOpen) => {
+              setRenameOpen(nextOpen);
+              if (!nextOpen) setRenameTarget(null);
+            }}
+          >
+            <DialogContent className="rounded-3xl p-6 sm:max-w-md">
+              <form onSubmit={renameFolder}>
+                <DialogHeader>
+                  <DialogTitle className="text-3xl font-semibold tracking-[-0.04em]">
+                    Rename Stack
+                  </DialogTitle>
+                  <DialogDescription>
+                    Choose a new name for this stack.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="mt-6 space-y-2">
+                  <Label htmlFor="rename-folder-name">Stack name</Label>
+                  <Input
+                    id="rename-folder-name"
+                    name="rename-folder-name"
+                    value={renameName}
+                    onChange={(event) => setRenameName(event.target.value)}
+                    required
+                    maxLength={180}
+                    autoFocus
+                  />
+                </div>
+                <DialogFooter className="mt-6">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setRenameOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={renameFolderMutation.isPending}
+                  >
+                    {renameFolderMutation.isPending && (
+                      <LoaderCircle className="animate-spin" />
+                    )}
+                    Rename Stack
                   </Button>
                 </DialogFooter>
               </form>
@@ -477,17 +579,40 @@ export function LibraryView() {
       ) : folders.length > 0 ? (
         <div className="grid grid-cols-2 gap-3 py-6 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
           {folders.map((folder) => (
-            <button
+            <div
               key={folder.id}
-              type="button"
-              onClick={() => selectFolder(folder.id)}
-              className="flex min-w-0 items-center gap-3 rounded-xl border bg-card p-4"
+              className="flex min-w-0 items-center gap-2 rounded-xl border bg-card p-2"
             >
-              <FolderIcon className="size-5 shrink-0 text-brand-ink" />
-              <span className="truncate text-sm font-semibold">
-                {folder.name}
-              </span>
-            </button>
+              <button
+                type="button"
+                onClick={() => selectFolder(folder.id)}
+                className="flex min-w-0 flex-1 items-center gap-3 p-2 text-left"
+              >
+                <FolderIcon className="size-5 shrink-0 text-brand-ink" />
+                <span className="truncate text-sm font-semibold">
+                  {folder.name}
+                </span>
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Actions for ${folder.name}`}
+                    />
+                  }
+                >
+                  <Ellipsis />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-36">
+                  <DropdownMenuItem onClick={() => openRename(folder)}>
+                    <Pencil />
+                    Rename
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           ))}
         </div>
       ) : null}
