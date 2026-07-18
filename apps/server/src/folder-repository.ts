@@ -122,6 +122,18 @@ export const FolderRepository = {
       );
     }),
 
+  getBooksInFolder: (userId: string, folderId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* DatabaseService;
+
+      return yield* Effect.tryPromise(() =>
+        db
+          .select()
+          .from(books)
+          .where(and(eq(books.folderId, folderId), eq(books.userId, userId))),
+      );
+    }),
+
   renameFolder: (userId: string, input: RenameFolderInput) =>
     Effect.gen(function* () {
       const { db } = yield* DatabaseService;
