@@ -7,6 +7,7 @@
     "./ai": "./src/ai.ts",
     "./auth": "./src/auth.ts",
     "./books": "./src/books.ts",
+    "./folders": "./src/folders.ts",
     "./reader": "./src/reader.ts",
     "./domain/reader": "./src/domain/reader.ts"
   },
