@@ -428,11 +428,14 @@ function Sideboard({
             {(selectedText || pointer?.text) && (
               <div className="mb-2 flex items-start gap-2 rounded-xl bg-coral-soft/55 px-3 py-2 text-[0.68rem] leading-relaxed text-ink-soft">
                 <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-coral" />
-                <span className="line-clamp-2">
-                  {selectedText
-                    ? `Selected: “${selectedText}”`
-                    : `Pointing at: “${pointer?.text}”`}
-                </span>
+                <div className="min-w-0">
+                  <p className="font-semibold text-foreground">
+                    {selectedText ? "Selected passage" : "Pointing at"}
+                  </p>
+                  <p className="scrollbar-none mt-0.5 max-h-20 overflow-y-auto pr-1">
+                    “{selectedText || pointer?.text}”
+                  </p>
+                </div>
               </div>
             )}
             <div className="flex items-end gap-2 rounded-2xl border bg-background p-1.5 pl-3 shadow-sm">
@@ -773,18 +776,27 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   useEffect(() => {
     const node = viewportRef.current;
     if (!node) return;
-    const observer = new ResizeObserver(([entry]) => {
+    const measureViewport = () => {
+      const style = window.getComputedStyle(node);
+      const horizontalPadding =
+        Number.parseFloat(style.paddingLeft) +
+        Number.parseFloat(style.paddingRight);
+      const verticalPadding =
+        Number.parseFloat(style.paddingTop) +
+        Number.parseFloat(style.paddingBottom);
       const next = {
-        width: Math.max(1, Math.floor(entry.contentRect.width)),
-        height: Math.max(1, Math.floor(entry.contentRect.height)),
+        width: Math.max(1, Math.floor(node.clientWidth - horizontalPadding)),
+        height: Math.max(1, Math.floor(node.clientHeight - verticalPadding)),
       };
       setViewportSize((current) =>
         current.width === next.width && current.height === next.height
           ? current
           : next,
       );
-    });
+    };
+    const observer = new ResizeObserver(measureViewport);
     observer.observe(node);
+    measureViewport();
     return () => observer.disconnect();
   }, []);
 
@@ -1169,6 +1181,9 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
                 <Button
                   variant={sideboardOpen ? "secondary" : "ghost"}
                   size="icon"
+                  aria-label={
+                    sideboardOpen ? "Close sideboard" : "Open sideboard"
+                  }
                   onClick={() => setSideboardOpen((value) => !value)}
                 />
               }
@@ -1188,10 +1203,10 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
           sideboardOpen ? "xl:grid-cols-[minmax(0,1fr)_23rem]" : "grid-cols-1",
         )}
       >
-        <div className="relative min-h-0">
+        <div className="relative min-h-0 overflow-hidden">
           <div
             ref={viewportRef}
-            className="scrollbar-none h-full min-h-0 overflow-auto p-4 sm:p-6"
+            className="scrollbar-none absolute inset-0 overflow-auto p-4 sm:p-6"
           >
             <PdfReader
               fileUrl={`/api/books/${bookId}/file`}
@@ -1218,8 +1233,8 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
           </div>
           {selection && (
             <div className="absolute inset-x-3 bottom-4 z-30 mx-auto flex max-w-xl items-center gap-2 rounded-2xl border bg-background/95 p-2 pl-3 shadow-float backdrop-blur-xl">
-              <p className="min-w-0 flex-1 truncate text-xs text-ink-soft">
-                “{selection.text}”
+              <p className="min-w-0 flex-1 text-xs font-medium text-ink-soft">
+                {selection.text.split(/\s+/).length} words selected
               </p>
               <Button
                 variant="secondary"

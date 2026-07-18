@@ -56,20 +56,52 @@ function normalizedRects(
   clientRects: Iterable<DOMRect>,
   pageRect: DOMRect,
 ): HighlightRect[] {
-  return Array.from(clientRects)
-    .map((rect) => {
-      const left = Math.max(pageRect.left, rect.left);
-      const top = Math.max(pageRect.top, rect.top);
-      const right = Math.min(pageRect.right, rect.right);
-      const bottom = Math.min(pageRect.bottom, rect.bottom);
-      return {
-        x: (left - pageRect.left) / pageRect.width,
-        y: (top - pageRect.top) / pageRect.height,
-        width: (right - left) / pageRect.width,
-        height: (bottom - top) / pageRect.height,
-      };
-    })
-    .filter((rect) => rect.width > 0.001 && rect.height > 0.001)
+  const clipped = Array.from(clientRects)
+    .map((rect) => ({
+      left: Math.max(pageRect.left, rect.left),
+      top: Math.max(pageRect.top, rect.top),
+      right: Math.min(pageRect.right, rect.right),
+      bottom: Math.min(pageRect.bottom, rect.bottom),
+    }))
+    .filter(
+      (rect) => rect.right - rect.left > 0.5 && rect.bottom - rect.top > 0.5,
+    )
+    .sort((left, right) => left.top - right.top || left.left - right.left);
+
+  const lines: typeof clipped = [];
+  for (const rect of clipped) {
+    const line = lines.at(-1);
+    if (!line) {
+      lines.push(rect);
+      continue;
+    }
+
+    const overlap =
+      Math.min(line.bottom, rect.bottom) - Math.max(line.top, rect.top);
+    const lineHeight = line.bottom - line.top;
+    const rectHeight = rect.bottom - rect.top;
+    const gap = Math.max(0, rect.left - line.right, line.left - rect.right);
+    const sameLine =
+      overlap / Math.min(lineHeight, rectHeight) >= 0.55 &&
+      gap <= Math.max(4, Math.max(lineHeight, rectHeight) * 1.5);
+
+    if (sameLine) {
+      line.left = Math.min(line.left, rect.left);
+      line.top = Math.min(line.top, rect.top);
+      line.right = Math.max(line.right, rect.right);
+      line.bottom = Math.max(line.bottom, rect.bottom);
+    } else {
+      lines.push(rect);
+    }
+  }
+
+  return lines
+    .map((rect) => ({
+      x: (rect.left - pageRect.left) / pageRect.width,
+      y: (rect.top - pageRect.top) / pageRect.height,
+      width: (rect.right - rect.left) / pageRect.width,
+      height: (rect.bottom - rect.top) / pageRect.height,
+    }))
     .map((rect) => ({
       x: Number(rect.x.toFixed(6)),
       y: Number(rect.y.toFixed(6)),
@@ -104,7 +136,11 @@ function HighlightLayer({
       {activeFocus?.rects.map((rect, index) => (
         <span
           key={`${activeFocus.id}-${index}`}
-          className="absolute animate-pulse rounded-[0.16rem] bg-coral/30 ring-1 ring-coral/55 mix-blend-multiply"
+          className={
+            activeFocus.id === "current-selection"
+              ? "absolute rounded-[0.16rem] bg-reader-highlight/55 mix-blend-multiply"
+              : "absolute animate-pulse rounded-[0.16rem] bg-coral/30 ring-1 ring-coral/55 mix-blend-multiply"
+          }
           style={{
             left: `${rect.x * 100}%`,
             top: `${rect.y * 100}%`,
@@ -134,6 +170,8 @@ export default function PdfReader({
   onFocusResolved,
 }: PdfReaderProps) {
   const pageRef = useRef<HTMLDivElement>(null);
+  const selectingRef = useRef(false);
+  const selectionFrameRef = useRef<number | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [failedPage, setFailedPage] = useState<{
     fileUrl: string;
@@ -146,6 +184,9 @@ export default function PdfReader({
     width: number;
     height: number;
   } | null>(null);
+  const [liveSelection, setLiveSelection] = useState<ReaderSelection | null>(
+    null,
+  );
   const hasError =
     failedPage?.fileUrl === fileUrl && failedPage.page === page;
   const currentPageSize =
@@ -159,6 +200,59 @@ export default function PdfReader({
   );
   const renderWidth = Math.max(1, Math.floor(fittedWidth * zoom));
   const renderHeight = Math.max(1, Math.floor(renderWidth / aspectRatio));
+
+  const readSelection = useCallback((): ReaderSelection | null => {
+    const selection = window.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const pageNode = pageRef.current;
+    if (!selection || !range || !pageNode) return null;
+    const text = selection
+      .toString()
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 4000);
+    if (!text || !pageNode.contains(range.commonAncestorContainer)) return null;
+    const rects = normalizedRects(
+      Array.from(range.getClientRects()),
+      pageNode.getBoundingClientRect(),
+    );
+    return rects.length ? { page, text, rects } : null;
+  }, [page]);
+
+  const finishSelection = useCallback(() => {
+    if (!selectingRef.current) return;
+    selectingRef.current = false;
+    if (selectionFrameRef.current !== null) {
+      window.cancelAnimationFrame(selectionFrameRef.current);
+      selectionFrameRef.current = null;
+    }
+    const nextSelection = readSelection();
+    setLiveSelection(null);
+    window.getSelection()?.removeAllRanges();
+    onPointerChange(null);
+    onSelectionChange(nextSelection);
+  }, [onPointerChange, onSelectionChange, readSelection]);
+
+  useEffect(() => {
+    const updateLiveSelection = () => {
+      if (!selectingRef.current || selectionFrameRef.current !== null) return;
+      selectionFrameRef.current = window.requestAnimationFrame(() => {
+        selectionFrameRef.current = null;
+        setLiveSelection(readSelection());
+      });
+    };
+    document.addEventListener("selectionchange", updateLiveSelection);
+    return () => {
+      document.removeEventListener("selectionchange", updateLiveSelection);
+      if (selectionFrameRef.current !== null)
+        window.cancelAnimationFrame(selectionFrameRef.current);
+    };
+  }, [readSelection]);
+
+  useEffect(() => {
+    document.addEventListener("mouseup", finishSelection);
+    return () => document.removeEventListener("mouseup", finishSelection);
+  }, [finishSelection]);
 
   const locatePassage = useCallback((passage: string) => {
     const pageNode = pageRef.current;
@@ -281,7 +375,14 @@ export default function PdfReader({
     <div
       ref={pageRef}
       className="relative mx-auto w-fit overflow-hidden bg-card shadow-float"
+      onMouseDown={() => {
+        selectingRef.current = true;
+        setLiveSelection(null);
+        onPointerChange(null);
+        onSelectionChange(null);
+      }}
       onMouseMove={(event) => {
+        if (selectingRef.current) return;
         const rect = event.currentTarget.getBoundingClientRect();
         const element = document.elementFromPoint(event.clientX, event.clientY);
         const text = element
@@ -294,24 +395,7 @@ export default function PdfReader({
         });
       }}
       onMouseLeave={() => onPointerChange(null)}
-      onMouseUp={() => {
-        const selection = window.getSelection();
-        const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-        const pageNode = pageRef.current;
-        if (!selection || !range || !pageNode) return onSelectionChange(null);
-        const text = selection
-          .toString()
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 4000);
-        if (!text || !pageNode.contains(range.commonAncestorContainer))
-          return onSelectionChange(null);
-        const rects = normalizedRects(
-          Array.from(range.getClientRects()),
-          pageNode.getBoundingClientRect(),
-        );
-        onSelectionChange(rects.length ? { page, text, rects } : null);
-      }}
+      onMouseUp={finishSelection}
     >
       <Document
         key={attempt}
@@ -343,7 +427,14 @@ export default function PdfReader({
           onRenderTextLayerSuccess={handleTextLayerRender}
         />
       </Document>
-      <HighlightLayer highlights={highlights} activeFocus={activeFocus} />
+      <HighlightLayer
+        highlights={highlights}
+        activeFocus={
+          liveSelection
+            ? { id: "current-selection", ...liveSelection }
+            : activeFocus
+        }
+      />
       {pointer && (
         <div
           className="pointer-events-none absolute z-20"

@@ -246,11 +246,10 @@
 .react-pdf__Page {
   background: transparent !important;
 }
-.react-pdf__Page__canvas {
-  display: block;
-  width: 100% !important;
-  height: auto !important;
-}
 .react-pdf__Page__textContent {
   user-select: text;
+}
+.react-pdf__Page__textContent ::selection {
+  background: transparent;
+  color: transparent;
 }
