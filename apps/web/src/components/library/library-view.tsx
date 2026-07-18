@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import {
+  ArrowLeft,
   ArrowRight,
   BookOpen,
   FileText,
@@ -18,6 +19,7 @@ import {
   UploadCloud,
 } from "lucide-react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,14 +47,22 @@ import {
 } from "@loreline/contracts/books";
 import type { Folder } from "@loreline/contracts/folders";
 
-async function getBooks(cursor?: string | null): Promise<BooksPageResponse> {
+async function getBooks(
+  folderId: string | null,
+  cursor?: string | null,
+): Promise<BooksPageResponse> {
   const params = new URLSearchParams({ limit: "12" });
+  if (folderId) params.set("folderId", folderId);
   if (cursor) params.set("cursor", cursor);
   return apiJson<BooksPageResponse>(`/api/books?${params}`);
 }
 
-async function getTopLevelFolders(): Promise<{ folders: Folder[] }> {
-  return apiJson<{ folders: Folder[] }>("/api/folders");
+async function getFolders(
+  parentId: string | null,
+): Promise<{ folders: Folder[] }> {
+  const params = new URLSearchParams();
+  if (parentId) params.set("parentId", parentId);
+  return apiJson<{ folders: Folder[] }>(`/api/folders?${params}`);
 }
 
 function BookCover({ title, index }: { title: string; index: number }) {
@@ -80,16 +90,20 @@ function BookCover({ title, index }: { title: string; index: number }) {
 
 export function LibraryView() {
   const queryClient = useQueryClient();
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderId = searchParams.get("folderId") || null;
   const foldersQuery = useQuery({
-    queryKey: ["folders", null],
-    queryFn: getTopLevelFolders,
+    queryKey: ["folders", folderId],
+    queryFn: () => getFolders(folderId),
   });
   const booksQuery = useInfiniteQuery({
-    queryKey: ["books"],
-    queryFn: ({ pageParam }) => getBooks(pageParam),
+    queryKey: ["books", folderId],
+    queryFn: ({ pageParam }) => getBooks(folderId, pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
@@ -144,6 +158,19 @@ export function LibraryView() {
       .toLowerCase()
       .includes(search.toLowerCase()),
   );
+
+  function selectFolder(nextFolderId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("folderId", nextFolderId);
+    router.push(`${pathname}?${params}`, { scroll: false });
+  }
+
+  function returnToShelf() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("folderId");
+    const query = params.toString();
+    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
 
   function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -292,6 +319,18 @@ export function LibraryView() {
         </Badge>
       </div>
 
+      {folderId && (
+        <Button
+          className="mt-4"
+          size="sm"
+          variant="ghost"
+          onClick={returnToShelf}
+        >
+          <ArrowLeft />
+          Back to Shelf
+        </Button>
+      )}
+
       {foldersQuery.isPending ? (
         <div className="grid grid-cols-2 gap-3 py-6 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
           {Array.from({ length: 3 }).map((_, index) => (
@@ -321,15 +360,17 @@ export function LibraryView() {
       ) : folders.length > 0 ? (
         <div className="grid grid-cols-2 gap-3 py-6 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
           {folders.map((folder) => (
-            <div
+            <button
               key={folder.id}
+              type="button"
+              onClick={() => selectFolder(folder.id)}
               className="flex min-w-0 items-center gap-3 rounded-xl border bg-card p-4"
             >
               <FolderIcon className="size-5 shrink-0 text-brand-ink" />
               <span className="truncate text-sm font-semibold">
                 {folder.name}
               </span>
-            </div>
+            </button>
           ))}
         </div>
       ) : null}
