@@ -1,4 +1,4 @@
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, isNull, lt } from "drizzle-orm";
 import { Effect } from "effect";
 import { NextResponse } from "next/server";
 import { books } from "@loreline/database/schema";
@@ -6,6 +6,7 @@ import {
   beginBookUploadInputSchema,
   beginBookUploadResponseSchema,
   booksPageResponseSchema,
+  getBooksInputSchema,
 } from "@loreline/contracts/books";
 import {
   apiError,
@@ -25,6 +26,9 @@ export async function GET(request: Request) {
   try {
     const session = await requireSession();
     const url = new URL(request.url);
+    const input = getBooksInputSchema.parse({
+      folderId: url.searchParams.get("folderId"),
+    });
     const limit = Math.min(
       Math.max(Number(url.searchParams.get("limit")) || 12, 1),
       50,
@@ -53,6 +57,9 @@ export async function GET(request: Request) {
             .where(
               and(
                 eq(books.userId, session.user.id),
+                input.folderId
+                  ? eq(books.folderId, input.folderId)
+                  : isNull(books.folderId),
                 cursorDate ? lt(books.lastOpenedAt, cursorDate) : undefined,
               ),
             )

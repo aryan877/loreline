@@ -13,6 +13,10 @@ const progressSchema = z.number().min(0).max(1);
 export const bookStatusSchema = z.enum(["processing", "ready", "failed"]);
 export type BookStatus = z.infer<typeof bookStatusSchema>;
 
+export const getBooksInputSchema = z.object({
+  folderId: bookIdSchema.nullish(),
+});
+
 export const beginBookUploadInputSchema = z.object({
   fileName: z
     .string()
