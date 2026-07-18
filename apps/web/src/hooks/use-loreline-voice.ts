@@ -1,7 +1,11 @@
 "use client";
 
 import { tool } from "@openai/agents";
-import { RealtimeAgent, RealtimeSession } from "@openai/agents/realtime";
+import {
+  RealtimeAgent,
+  type RealtimeItem,
+  RealtimeSession,
+} from "@openai/agents/realtime";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
@@ -11,6 +15,9 @@ import { showErrorToast } from "@/lib/toast-error";
 import type {
   IllustrationInput,
   IllustrationResponse,
+  RealtimeCompactionResponse,
+  RealtimeCompactionTurn,
+  RealtimeMemory,
   RealtimeTokenResponse,
   SearchBookResponse,
 } from "@loreline/contracts/ai";
@@ -20,6 +27,17 @@ import type {
   ReadingContext,
   VoiceState,
 } from "@loreline/contracts/reader";
+
+const REALTIME_COMPACTION_RATIO = 0.95;
+
+const realtimeUsageEventSchema = z.object({
+  type: z.literal("response.done"),
+  response: z.object({
+    usage: z
+      .object({ input_tokens: z.number().int().nonnegative() })
+      .nullish(),
+  }),
+});
 
 async function searchBookRequest(bookId: string, query: string) {
   return apiJson<SearchBookResponse>("/api/search", {
@@ -45,11 +63,65 @@ async function mintRealtimeToken(bookTitle: string) {
   });
 }
 
-function realtimeConversationBudget(model: string) {
-  return model.startsWith("gpt-realtime-2.1") ? 64_000 : 20_000;
+async function compactRealtimeConversation(input: {
+  bookId: string;
+  page: number;
+  previousMemory: RealtimeMemory | null;
+  turns: RealtimeCompactionTurn[];
+}) {
+  return apiJson<RealtimeCompactionResponse>("/api/realtime/compact", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
 }
 
-function pageInstructions(context: ReadingContext) {
+function realtimeConversationBudget(model: string) {
+  return model.startsWith("gpt-realtime-2.1") ? 96_000 : 20_000;
+}
+
+function realtimeTurns(history: RealtimeItem[]): RealtimeCompactionTurn[] {
+  const turns: RealtimeCompactionTurn[] = [];
+  for (const item of history) {
+    if (item.type === "message" && item.role !== "system") {
+      const text = item.content
+        .map((part) => {
+          if (part.type === "input_text" || part.type === "output_text")
+            return part.text;
+          return part.transcript ?? "";
+        })
+        .join("\n")
+        .trim()
+        .slice(0, 12_000);
+      if (text)
+        turns.push({
+          role: item.role,
+          text,
+        });
+      continue;
+    }
+    if (
+      item.type === "function_call" ||
+      item.type === "mcp_call" ||
+      item.type === "mcp_tool_call"
+    ) {
+      const text = [
+        `${item.name}(${item.arguments})`,
+        item.output ? `Result: ${item.output}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .slice(0, 12_000);
+      turns.push({ role: "tool", text });
+    }
+  }
+  return turns.slice(-500);
+}
+
+function pageInstructions(
+  context: ReadingContext,
+  memory: RealtimeMemory | null,
+) {
   const pointer = context.pointer
     ? `Pointer: ${Math.round(context.pointer.x * 100)}% from the left, ${Math.round(context.pointer.y * 100)}% from the top${context.pointer.text ? `, over “${context.pointer.text}”` : ""}.`
     : "No pointer is currently visible.";
@@ -57,9 +129,7 @@ function pageInstructions(context: ReadingContext) {
     "You are Loreline, a calm, perceptive realtime reading companion.",
     "The live page is primary truth. Start with the visible page image, extracted text, selected text, and pointer. Only call search_book when the question needs information outside this page or the visible context is genuinely insufficient.",
     "Before quoting, explaining, or narrating a specific passage, call focus_passage with the exact words and page so the reader can see what you are discussing. Use save_highlight_note when the reader asks to keep a note attached to a passage. Use place_note only for a temporary freeform sideboard artifact. Use place_visual whenever an image, scene, analogy, map, or diagram would materially improve understanding.",
-    context.readerMode
-      ? "Reader mode is ON. Read the visible page naturally in coherent passages and call focus_passage before each passage. At the end of the page, call turn_page with next and stop until the updated page arrives; narration will then continue. Obey spoken requests to pause, resume, move to the next page, or move to the previous page. Never invent text that is not visible."
-      : "Reader mode is OFF. Do not begin continuous narration unless the reader asks for it.",
+    "Use voice for conversation and spoken navigation. Do not begin continuous narration or turn pages automatically. Obey explicit spoken requests to move to the next or previous PDF page.",
     `Book: “${context.title}”. Current page: ${context.page}. ${pointer}`,
     context.selectedText ? `Selected text: “${context.selectedText}”` : "",
     context.visibleText
@@ -73,6 +143,9 @@ function pageInstructions(context: ReadingContext) {
           )
           .join("\n")}`
       : "",
+    memory
+      ? `Long-session conversation memory. Treat this as a compacted record of earlier turns; the live page remains primary truth:\n${JSON.stringify(memory)}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -81,7 +154,6 @@ function pageInstructions(context: ReadingContext) {
 export function useLorelineVoice(
   context: ReadingContext,
   addBoardItem: (item: BoardItem) => void,
-  addTranscript: (role: "user" | "assistant", text: string) => void,
   readerControls: ReaderControls,
 ) {
   const queryClient = useQueryClient();
@@ -90,20 +162,23 @@ export function useLorelineVoice(
   const sessionRef = useRef<RealtimeSession | null>(null);
   const contextRef = useRef(context);
   const boardRef = useRef(addBoardItem);
-  const transcriptRef = useRef(addTranscript);
   const controlsRef = useRef(readerControls);
+  const memoryRef = useRef<RealtimeMemory | null>(null);
+  const compactingRef = useRef(false);
   const { mutateAsync: createVisual } = useMutation({
     mutationFn: createIllustration,
   });
   const { mutateAsync: getRealtimeToken } = useMutation({
     mutationFn: mintRealtimeToken,
   });
+  const { mutateAsync: compactConversation } = useMutation({
+    mutationFn: compactRealtimeConversation,
+  });
   useEffect(() => {
     contextRef.current = context;
     boardRef.current = addBoardItem;
-    transcriptRef.current = addTranscript;
     controlsRef.current = readerControls;
-  }, [context, addBoardItem, addTranscript, readerControls]);
+  }, [context, addBoardItem, readerControls]);
 
   const buildAgent = useCallback(() => {
     const searchBook = tool({
@@ -209,7 +284,7 @@ export function useLorelineVoice(
     const turnPage = tool({
       name: "turn_page",
       description:
-        "Move the PDF to the next or previous page. Use for spoken navigation and at the end of a page in Reader mode.",
+        "Move the PDF to the next or previous page when the reader explicitly asks for spoken navigation.",
       parameters: z.object({
         direction: z.enum(["next", "previous"]),
       }),
@@ -251,7 +326,7 @@ export function useLorelineVoice(
 
     return new RealtimeAgent({
       name: "Loreline",
-      instructions: pageInstructions(contextRef.current),
+      instructions: pageInstructions(contextRef.current, memoryRef.current),
       tools: [
         searchBook,
         focusPassage,
@@ -263,12 +338,42 @@ export function useLorelineVoice(
     });
   }, [createVisual, queryClient]);
 
+  const compactSession = useCallback(
+    async (session: RealtimeSession) => {
+      if (compactingRef.current) return;
+      const history = session.history;
+      const turns = realtimeTurns(history);
+      if (!turns.length) return;
+      const summarizedItemIds = new Set(history.map((item) => item.itemId));
+      compactingRef.current = true;
+      try {
+        const { memory } = await compactConversation({
+          bookId: contextRef.current.bookId,
+          page: contextRef.current.page,
+          previousMemory: memoryRef.current,
+          turns,
+        });
+        memoryRef.current = memory;
+        await session.updateAgent(buildAgent());
+        session.updateHistory((current) =>
+          current.filter((item) => !summarizedItemIds.has(item.itemId)),
+        );
+      } catch (cause) {
+        console.error("Loreline could not compact the voice session", cause);
+      } finally {
+        compactingRef.current = false;
+      }
+    },
+    [buildAgent, compactConversation],
+  );
+
   const connect = useCallback(async () => {
     if (sessionRef.current) return sessionRef.current;
     setError("");
     setState("connecting");
     try {
       const token = await getRealtimeToken(contextRef.current.title);
+      const conversationBudget = realtimeConversationBudget(token.model);
       const session = new RealtimeSession(buildAgent(), {
         model: token.model,
         transport: "webrtc",
@@ -279,7 +384,7 @@ export function useLorelineVoice(
               type: "retention_ratio",
               retention_ratio: 0.7,
               token_limits: {
-                post_instructions: realtimeConversationBudget(token.model),
+                post_instructions: conversationBudget,
               },
             },
           },
@@ -288,8 +393,13 @@ export function useLorelineVoice(
       session.on("audio_start", () => setState("speaking"));
       session.on("audio_stopped", () => setState("listening"));
       session.on("audio_interrupted", () => setState("listening"));
-      session.on("agent_end", (_ctx, _agent, output) => {
-        if (output?.trim()) transcriptRef.current("assistant", output.trim());
+      session.on("transport_event", (event) => {
+        const parsed = realtimeUsageEventSchema.safeParse(event);
+        const inputTokens = parsed.success
+          ? (parsed.data.response.usage?.input_tokens ?? 0)
+          : 0;
+        if (inputTokens >= conversationBudget * REALTIME_COMPACTION_RATIO)
+          void compactSession(session);
       });
       session.on("error", () => {
         const error = new UserFacingError(
@@ -314,7 +424,7 @@ export function useLorelineVoice(
       setState("error");
       return null;
     }
-  }, [buildAgent, getRealtimeToken]);
+  }, [buildAgent, compactSession, getRealtimeToken]);
 
   const disconnect = useCallback(() => {
     sessionRef.current?.close();
@@ -339,27 +449,8 @@ export function useLorelineVoice(
     context.selectedText,
     context.pointer?.x,
     context.pointer?.y,
-    context.readerMode,
     buildAgent,
   ]);
-
-  const previousReaderPage = useRef(context.page);
-  useEffect(() => {
-    const previousPage = previousReaderPage.current;
-    previousReaderPage.current = context.page;
-    if (
-      !context.readerMode ||
-      context.page === previousPage ||
-      !sessionRef.current
-    )
-      return;
-    const timeout = window.setTimeout(() => {
-      sessionRef.current?.sendMessage(
-        `Continue Reader mode from the beginning of visible page ${context.page}. Focus each exact passage before reading it.`,
-      );
-    }, 950);
-    return () => window.clearTimeout(timeout);
-  }, [context.page, context.readerMode]);
 
   useEffect(() => () => sessionRef.current?.close(), []);
 
@@ -369,13 +460,5 @@ export function useLorelineVoice(
     connected: state !== "idle" && state !== "error",
     connect,
     disconnect,
-    interrupt: () => sessionRef.current?.interrupt(),
-    startNarration: async () => {
-      const session = await connect();
-      session?.sendMessage(
-        `Begin Reader mode on visible page ${contextRef.current.page}. Read naturally in coherent passages and focus each exact passage before speaking it.`,
-      );
-    },
-    stopNarration: () => sessionRef.current?.interrupt(),
   };
 }

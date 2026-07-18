@@ -26,7 +26,6 @@ export type ReadingContext = {
   selectedText: string;
   pointer: PointerContext;
   screenshot: string | null;
-  readerMode: boolean;
   savedPassages: Array<{
     text: string;
     note: string | null;
@@ -58,13 +57,6 @@ export type ReaderControls = {
     note: string;
   }) => Promise<boolean>;
   goToPage: (page: number) => boolean;
-};
-
-export type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  createdAt: number;
 };
 
 export type VoiceState =

@@ -110,12 +110,90 @@ function normalizedRects(
     }));
 }
 
+function mergeSelections(
+  base: ReaderSelection | null,
+  addition: ReaderSelection | null,
+): ReaderSelection | null {
+  if (!base) return addition;
+  if (!addition || addition.page !== base.page) return base;
+  const rects = [...base.rects, ...addition.rects]
+    .filter(
+      (rect, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            Math.abs(candidate.x - rect.x) < 0.0001 &&
+            Math.abs(candidate.y - rect.y) < 0.0001 &&
+            Math.abs(candidate.width - rect.width) < 0.0001 &&
+            Math.abs(candidate.height - rect.height) < 0.0001,
+        ) === index,
+    )
+    .sort((left, right) => left.y - right.y || left.x - right.x)
+    .slice(0, 64);
+  return {
+    page: base.page,
+    text: `${base.text}\n${addition.text}`.trim().slice(0, 4_000),
+    rects,
+  };
+}
+
+function lineAtSpan(
+  pageNode: HTMLElement,
+  target: HTMLElement,
+  page: number,
+): ReaderSelection | null {
+  const targetRect = target.getBoundingClientRect();
+  const spans = Array.from(
+    pageNode.querySelectorAll<HTMLElement>(
+      ".react-pdf__Page__textContent span",
+    ),
+  )
+    .map((span) => ({ span, rect: span.getBoundingClientRect() }))
+    .filter(({ rect }) => {
+      const overlap =
+        Math.min(targetRect.bottom, rect.bottom) -
+        Math.max(targetRect.top, rect.top);
+      return overlap / Math.min(targetRect.height, rect.height) >= 0.55;
+    })
+    .sort((left, right) => left.rect.left - right.rect.left);
+  const targetIndex = spans.findIndex(({ span }) => span === target);
+  if (targetIndex < 0) return null;
+
+  const maxGap = Math.max(14, targetRect.height * 1.8);
+  let start = targetIndex;
+  let end = targetIndex;
+  while (
+    start > 0 &&
+    spans[start]!.rect.left - spans[start - 1]!.rect.right <= maxGap
+  )
+    start--;
+  while (
+    end < spans.length - 1 &&
+    spans[end + 1]!.rect.left - spans[end]!.rect.right <= maxGap
+  )
+    end++;
+
+  const line = spans.slice(start, end + 1);
+  const text = line
+    .map(({ span }) => span.textContent ?? "")
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 4_000);
+  const rects = normalizedRects(
+    line.map(({ rect }) => rect),
+    pageNode.getBoundingClientRect(),
+  );
+  return text && rects.length ? { page, text, rects } : null;
+}
+
 function HighlightLayer({
   highlights,
   activeFocus,
+  hoverSelection,
 }: {
   highlights: Highlight[];
   activeFocus: ReaderFocus | null;
+  hoverSelection: ReaderSelection | null;
 }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-10" aria-hidden>
@@ -149,6 +227,18 @@ function HighlightLayer({
           }}
         />
       ))}
+      {hoverSelection?.rects.map((rect, index) => (
+        <span
+          key={`hover-line-${index}`}
+          className="absolute rounded-[0.16rem] bg-reader-highlight/30 mix-blend-multiply"
+          style={{
+            left: `${rect.x * 100}%`,
+            top: `${rect.y * 100}%`,
+            width: `${rect.width * 100}%`,
+            height: `${rect.height * 100}%`,
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -171,6 +261,9 @@ export default function PdfReader({
 }: PdfReaderProps) {
   const pageRef = useRef<HTMLDivElement>(null);
   const selectingRef = useRef(false);
+  const additiveBaseRef = useRef<ReaderSelection | null>(null);
+  const hoveredSpanRef = useRef<HTMLElement | null>(null);
+  const hoverSelectionRef = useRef<ReaderSelection | null>(null);
   const selectionFrameRef = useRef<number | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [failedPage, setFailedPage] = useState<{
@@ -187,6 +280,8 @@ export default function PdfReader({
   const [liveSelection, setLiveSelection] = useState<ReaderSelection | null>(
     null,
   );
+  const [hoverSelection, setHoverSelection] =
+    useState<ReaderSelection | null>(null);
   const hasError =
     failedPage?.fileUrl === fileUrl && failedPage.page === page;
   const currentPageSize =
@@ -226,7 +321,11 @@ export default function PdfReader({
       window.cancelAnimationFrame(selectionFrameRef.current);
       selectionFrameRef.current = null;
     }
-    const nextSelection = readSelection();
+    const nextSelection = mergeSelections(
+      additiveBaseRef.current,
+      readSelection() ?? hoverSelectionRef.current,
+    );
+    additiveBaseRef.current = null;
     setLiveSelection(null);
     window.getSelection()?.removeAllRanges();
     onPointerChange(null);
@@ -238,7 +337,9 @@ export default function PdfReader({
       if (!selectingRef.current || selectionFrameRef.current !== null) return;
       selectionFrameRef.current = window.requestAnimationFrame(() => {
         selectionFrameRef.current = null;
-        setLiveSelection(readSelection());
+        setLiveSelection(
+          mergeSelections(additiveBaseRef.current, readSelection()),
+        );
       });
     };
     document.addEventListener("selectionchange", updateLiveSelection);
@@ -375,26 +476,43 @@ export default function PdfReader({
     <div
       ref={pageRef}
       className="relative mx-auto w-fit overflow-hidden bg-card shadow-float"
-      onMouseDown={() => {
+      onMouseDown={(event) => {
         selectingRef.current = true;
+        additiveBaseRef.current =
+          (event.metaKey || event.ctrlKey) &&
+          activeFocus?.id === "current-selection"
+            ? activeFocus
+            : null;
         setLiveSelection(null);
+        setHoverSelection(null);
+        hoveredSpanRef.current = null;
         onPointerChange(null);
-        onSelectionChange(null);
+        if (!additiveBaseRef.current) onSelectionChange(null);
       }}
       onMouseMove={(event) => {
         if (selectingRef.current) return;
         const rect = event.currentTarget.getBoundingClientRect();
         const element = document.elementFromPoint(event.clientX, event.clientY);
-        const text = element
-          ?.closest(".react-pdf__Page__textContent span")
-          ?.textContent?.trim();
+        const span = element?.closest<HTMLElement>(
+          ".react-pdf__Page__textContent span",
+        );
+        if ((span ?? null) === hoveredSpanRef.current) return;
+        hoveredSpanRef.current = span ?? null;
+        const line = span ? lineAtSpan(event.currentTarget, span, page) : null;
+        hoverSelectionRef.current = line;
+        setHoverSelection(line);
         onPointerChange({
           x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
           y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
-          text: text?.slice(0, 320) || undefined,
+          text: line?.text.slice(0, 320) || undefined,
         });
       }}
-      onMouseLeave={() => onPointerChange(null)}
+      onMouseLeave={() => {
+        hoveredSpanRef.current = null;
+        hoverSelectionRef.current = null;
+        setHoverSelection(null);
+        onPointerChange(null);
+      }}
       onMouseUp={finishSelection}
     >
       <Document
@@ -429,6 +547,7 @@ export default function PdfReader({
       </Document>
       <HighlightLayer
         highlights={highlights}
+        hoverSelection={hoverSelection}
         activeFocus={
           liveSelection
             ? { id: "current-selection", ...liveSelection }

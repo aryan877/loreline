@@ -4,6 +4,8 @@ import { Config, Context, Effect, Layer, Option } from "effect";
 
 export interface AppConfig {
   readonly openAiApiKey?: string;
+  readonly openRouterApiKey?: string;
+  readonly compactionModel: string;
   readonly chatModel: string;
   readonly realtimeModel: string;
   readonly imageModel: string;
@@ -30,6 +32,10 @@ export const AppConfigLive = Layer.effect(
   Effect.gen(function* () {
     return {
       openAiApiKey: yield* optional("OPENAI_API_KEY"),
+      openRouterApiKey: yield* optional("OPENROUTER_API_KEY"),
+      compactionModel: yield* Config.string(
+        "OPENROUTER_COMPACTION_MODEL",
+      ).pipe(Config.withDefault("deepseek/deepseek-v4-flash")),
       chatModel: yield* Config.string("OPENAI_CHAT_MODEL").pipe(
         Config.withDefault("gpt-5.6-luna"),
       ),

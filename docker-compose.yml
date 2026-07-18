@@ -44,6 +44,8 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_COMPACTION_MODEL: ${OPENROUTER_COMPACTION_MODEL:-deepseek/deepseek-v4-flash}
       R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
@@ -53,6 +55,8 @@ services:
     volumes:
       - .:/app
       - loreline_node_modules:/app/node_modules
+    tmpfs:
+      - /app/apps/server/.next-docker
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,6 +82,8 @@ services:
     volumes:
       - .:/app
       - loreline_node_modules:/app/node_modules
+    tmpfs:
+      - /app/apps/web/.next-docker
     depends_on:
       server:
         condition: service_healthy

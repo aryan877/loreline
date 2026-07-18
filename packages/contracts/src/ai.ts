@@ -76,3 +76,57 @@ export const realtimeTokenResponseSchema = z.object({
 export type RealtimeTokenResponse = z.infer<
   typeof realtimeTokenResponseSchema
 >;
+
+export const realtimeCompactionTurnSchema = z.object({
+  role: z.enum(["user", "assistant", "tool"]),
+  text: z.string().trim().min(1).max(12_000),
+});
+export type RealtimeCompactionTurn = z.infer<
+  typeof realtimeCompactionTurnSchema
+>;
+
+export const realtimeMemorySchema = z.object({
+  summary: z
+    .string()
+    .max(12_000)
+    .describe("Concise chronological memory of the reading conversation."),
+  readerGoals: z
+    .array(z.string().max(500))
+    .max(20)
+    .describe("What the reader is trying to understand or accomplish."),
+  importantDetails: z
+    .array(z.string().max(700))
+    .max(40)
+    .describe("Facts, preferences, decisions, and explanations worth retaining."),
+  discussedPages: z
+    .array(
+      z.object({
+        page: z.number().int().positive(),
+        context: z.string().max(1_000),
+      }),
+    )
+    .max(60)
+    .describe("Book pages discussed and the relevant context from each."),
+  openQuestions: z
+    .array(z.string().max(500))
+    .max(20)
+    .describe("Unresolved questions or threads to carry into future turns."),
+});
+export type RealtimeMemory = z.infer<typeof realtimeMemorySchema>;
+
+export const realtimeCompactionInputSchema = z.object({
+  bookId: idSchema,
+  page: z.number().int().positive(),
+  previousMemory: realtimeMemorySchema.nullish(),
+  turns: z.array(realtimeCompactionTurnSchema).min(1).max(500),
+});
+export type RealtimeCompactionInput = z.infer<
+  typeof realtimeCompactionInputSchema
+>;
+
+export const realtimeCompactionResponseSchema = z.object({
+  memory: realtimeMemorySchema,
+});
+export type RealtimeCompactionResponse = z.infer<
+  typeof realtimeCompactionResponseSchema
+>;

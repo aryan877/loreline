@@ -10,19 +10,16 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   Bookmark,
   BookmarkCheck,
-  BookOpenText,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Highlighter,
-  Image as ImageIcon,
   LoaderCircle,
-  MessageCircle,
   Mic2,
   Minus,
   PanelRightClose,
   PanelRightOpen,
   Plus,
-  Send,
   Sparkles,
   StickyNote,
   Trash2,
@@ -32,7 +29,14 @@ import {
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,7 +49,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -63,10 +66,6 @@ import type {
   ReaderBook,
 } from "@loreline/contracts/books";
 import type {
-  ChatResponse,
-  IllustrationResponse,
-} from "@loreline/contracts/ai";
-import type {
   Bookmark as SavedBookmark,
   BookmarkResponse,
   BookmarksResponse,
@@ -79,7 +78,6 @@ import type {
 } from "@loreline/contracts/highlights";
 import type {
   BoardItem,
-  ChatMessage,
   ReaderControls,
   ReaderFocus,
   ReaderFocusRequest,
@@ -154,40 +152,58 @@ function SavedHighlightCard({
 
   const changed = note.trim() !== (highlight.note ?? "");
   return (
-    <article className="rounded-2xl border bg-card p-3 shadow-sm">
-      <button className="w-full text-left" onClick={onOpen}>
-        <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-coral">
-          Page {highlight.page}
+    <details
+      className="group min-w-0 max-w-full overflow-hidden rounded-2xl border bg-card shadow-sm open:shadow-float"
+    >
+      <summary className="flex cursor-pointer list-none items-start gap-3 p-3.5 outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-reader-highlight/60 text-[0.62rem] font-semibold text-foreground">
+          {highlight.page}
         </span>
-        <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-ink-soft">
+        <span className="min-w-0 flex-1">
+          <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
+            {highlight.note ? "Passage with note" : "Saved passage"}
+          </span>
+          <span className="mt-1.5 line-clamp-2 block break-words text-xs leading-relaxed text-foreground group-open:hidden [overflow-wrap:anywhere]">
+            “{highlight.text}”
+          </span>
+        </span>
+        <ChevronDown className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="min-w-0 border-t bg-paper/55 p-3.5">
+        <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words pr-1 text-xs leading-relaxed text-ink-soft [overflow-wrap:anywhere]">
           “{highlight.text}”
         </p>
-      </button>
-      <Textarea
-        aria-label={`Note for highlight on page ${highlight.page}`}
-        value={note}
-        onChange={(event) => setNote(event.target.value.slice(0, 4000))}
-        placeholder="Add a note to this passage…"
-        className="mt-3 min-h-20 resize-none bg-background text-xs"
-      />
-      <div className="mt-2 flex items-center justify-between">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Delete highlight on page ${highlight.page}`}
-          onClick={() => void onDelete()}
-        >
-          <Trash2 />
-        </Button>
-        <Button
-          size="sm"
-          disabled={!changed}
-          onClick={() => void onUpdate(note.trim() || null)}
-        >
-          Save note
-        </Button>
+        <Textarea
+          aria-label={`Note for highlight on page ${highlight.page}`}
+          value={note}
+          onChange={(event) => setNote(event.target.value.slice(0, 4000))}
+          placeholder="Add a note to this passage…"
+          className="mt-3 min-h-24 w-full max-w-full resize-none bg-background text-xs"
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Delete highlight on page ${highlight.page}`}
+            onClick={() => void onDelete()}
+          >
+            <Trash2 />
+            Remove
+          </Button>
+          <Button variant="outline" size="sm" onClick={onOpen}>
+            Show on page
+          </Button>
+          <Button
+            size="sm"
+            className="ml-auto"
+            disabled={!changed}
+            onClick={() => void onUpdate(note.trim() || null)}
+          >
+            Save note
+          </Button>
+        </div>
       </div>
-    </article>
+    </details>
   );
 }
 
@@ -228,33 +244,9 @@ function Sideboard({
   onOpenBookmark,
   onDeleteBookmark,
 }: SideboardProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content:
-        "I’m with you on this page. Point at a line, select a phrase, or ask me anything.",
-      createdAt: 0,
-    },
-  ]);
-  const [conversationId, setConversationId] = useState<string>();
-  const [draft, setDraft] = useState("");
-  const [tab, setTab] = useState("talk");
-  const [readerMode, setReaderMode] = useState(false);
   const addBoardItem = useCallback(
-    (item: BoardItem) => {
-      setItems((current) => [...current, item]);
-      setTab("board");
-    },
+    (item: BoardItem) => setItems((current) => [...current, item]),
     [setItems],
-  );
-  const addTranscript = useCallback(
-    (role: "user" | "assistant", content: string) =>
-      setMessages((current) => [
-        ...current,
-        { id: crypto.randomUUID(), role, content, createdAt: Date.now() },
-      ]),
-    [],
   );
   const voiceContext = useMemo(
     () => ({
@@ -265,7 +257,6 @@ function Sideboard({
       selectedText,
       pointer,
       screenshot,
-      readerMode,
       savedPassages: highlights
         .filter((highlight) => highlight.page === page)
         .map((highlight) => ({
@@ -281,286 +272,84 @@ function Sideboard({
       selectedText,
       pointer,
       screenshot,
-      readerMode,
       highlights,
     ],
   );
-  const voice = useLorelineVoice(
-    voiceContext,
-    addBoardItem,
-    addTranscript,
-    readerControls,
+  const voice = useLorelineVoice(voiceContext, addBoardItem, readerControls);
+  const voiceLabel =
+    voice.state === "connecting"
+      ? "Connecting…"
+      : voice.state === "speaking"
+        ? "Loreline is speaking"
+        : voice.state === "listening"
+          ? "Listening"
+          : "Start voice";
+  const hasWorkspaceContent =
+    items.length > 0 || highlights.length > 0 || bookmarks.length > 0;
+  const currentPageHighlights = highlights.filter(
+    (highlight) => highlight.page === page,
+  );
+  const otherHighlights = highlights.filter(
+    (highlight) => highlight.page !== page,
   );
 
-  const chat = useMutation({
-    mutationFn: async (message: string) => {
-      return apiJson<ChatResponse>("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bookId: book.id,
-          conversationId,
-          message,
-          page,
-          visibleText,
-          pointer,
-          screenshot,
-        }),
-      });
-    },
-    onSuccess: (data) => {
-      setConversationId(data.conversationId);
-      setMessages((current) => [
-        ...current,
-        {
-          id: data.messageId,
-          role: "assistant",
-          content: data.answer,
-          createdAt: Date.now(),
-        },
-      ]);
-    },
-  });
-  const visualize = useMutation({
-    mutationFn: async () => {
-      const prompt = selectedText
-        ? `Help me visualize this selected passage: ${selectedText}`
-        : `Create a visual explanation for the central idea on this page.`;
-      const data = await apiJson<IllustrationResponse>("/api/illustrations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookId: book.id, page, prompt, visibleText }),
-      });
-      return { ...data, prompt };
-    },
-    onSuccess: (data) =>
-      addBoardItem({
-        id: data.id,
-        kind: "image",
-        title: selectedText ? "Selected passage" : `Page ${page}`,
-        url: data.dataUrl,
-        prompt: data.prompt,
-        createdAt: Date.now(),
-      }),
-  });
-
-  function send() {
-    const message = draft.trim();
-    if (!message || chat.isPending) return;
-    setDraft("");
-    setMessages((current) => [
-      ...current,
-      {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: message,
-        createdAt: Date.now(),
-      },
-    ]);
-    chat.mutate(message);
-  }
-
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l bg-card">
-      <Tabs
-        value={tab}
-        onValueChange={setTab}
-        className="flex min-h-0 flex-1 flex-col"
-      >
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div>
-            <p className="text-sm font-semibold">Reading companion</p>
-            <p className="text-[0.7rem] text-muted-foreground">
-              Page {page} · page-first context
-            </p>
-          </div>
-          <TabsList className="h-8">
-            <TabsTrigger value="talk">
-              <MessageCircle />
-              Talk
-            </TabsTrigger>
-            <TabsTrigger value="board">
-              <Sparkles />
-              Board{" "}
-              {items.length ? (
-                <span className="ml-0.5 text-[0.62rem]">{items.length}</span>
-              ) : null}
-            </TabsTrigger>
-            <TabsTrigger value="notes">
-              <StickyNote />
-              Notes{" "}
-              {highlights.length ? (
-                <span className="ml-0.5 text-[0.62rem]">
-                  {highlights.length}
-                </span>
-              ) : null}
-            </TabsTrigger>
-          </TabsList>
+    <aside className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-l bg-card">
+      <div className="flex min-w-0 items-center justify-between border-b px-4 py-3.5">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">Workspace</p>
+          <p className="truncate text-[0.7rem] text-muted-foreground">
+            Board, notes, and page {page}
+          </p>
         </div>
+        <span
+          className={cn(
+            "size-2 rounded-full",
+            voice.connected ? "bg-coral" : "bg-muted-foreground/35",
+          )}
+        />
+      </div>
 
-        <TabsContent value="talk" className="flex min-h-0 flex-1 flex-col">
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="space-y-5 p-4">
-              {messages.map((message) => (
-                <motion.div
-                  key={message.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={cn(
-                    "max-w-[92%] rounded-2xl px-3.5 py-3 text-sm leading-relaxed",
-                    message.role === "user"
-                      ? "ml-auto rounded-br-sm bg-primary text-primary-foreground"
-                      : "rounded-bl-sm bg-muted text-ink-soft",
-                  )}
-                >
-                  {message.content}
-                </motion.div>
-              ))}
-              {chat.isPending && (
-                <div className="flex max-w-[80%] items-center gap-2 rounded-2xl rounded-bl-sm bg-muted px-3.5 py-3 text-xs text-muted-foreground">
-                  <LoaderCircle className="size-3.5 animate-spin" />
-                  Looking closely at the page…
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-          <div className="border-t p-3">
-            {(selectedText || pointer?.text) && (
-              <div className="mb-2 flex items-start gap-2 rounded-xl bg-coral-soft/55 px-3 py-2 text-[0.68rem] leading-relaxed text-ink-soft">
-                <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-coral" />
-                <div className="min-w-0">
-                  <p className="font-semibold text-foreground">
-                    {selectedText ? "Selected passage" : "Pointing at"}
+      <ScrollArea className="min-h-0 min-w-0 flex-1 bg-paper/45">
+        <div className="dot-grid min-h-full min-w-0 space-y-6 p-4">
+          {(selectedText || pointer?.text) && (
+            <section className="flex min-w-0 items-start gap-2.5 rounded-2xl border bg-coral-soft/70 px-3.5 py-3 text-xs leading-relaxed text-ink-soft shadow-sm">
+              <span className="mt-1 size-1.5 shrink-0 rounded-full bg-coral" />
+              <div className="min-w-0">
+                <p className="font-semibold text-foreground">
+                  {selectedText ? "Selected passage" : "Pointing at"}
+                </p>
+                <p className="scrollbar-none mt-1 max-h-24 overflow-y-auto break-words pr-1 [overflow-wrap:anywhere]">
+                  “{selectedText || pointer?.text}”
+                </p>
+                {selectedText && (
+                  <p className="mt-2 text-[0.64rem] font-medium text-muted-foreground">
+                    Hold Cmd or Ctrl while dragging to add another passage.
                   </p>
-                  <p className="scrollbar-none mt-0.5 max-h-20 overflow-y-auto pr-1">
-                    “{selectedText || pointer?.text}”
-                  </p>
-                </div>
+                )}
               </div>
-            )}
-            <div className="flex items-end gap-2 rounded-2xl border bg-background p-1.5 pl-3 shadow-sm">
-              <Input
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    send();
-                  }
-                }}
-                className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-                placeholder="Ask about what you see…"
-              />
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      size="icon"
-                      onClick={send}
-                      disabled={!draft.trim() || chat.isPending}
-                    />
-                  }
-                >
-                  <Send />
-                </TooltipTrigger>
-                <TooltipContent>Send question</TooltipContent>
-              </Tooltip>
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => visualize.mutate()}
-                disabled={visualize.isPending}
-              >
-                {visualize.isPending ? (
-                  <LoaderCircle className="animate-spin" />
-                ) : (
-                  <ImageIcon />
-                )}
-                Visualize this
-              </Button>
-              <Button
-                variant={voice.connected ? "secondary" : "outline"}
-                size="sm"
-                onClick={voice.connected ? voice.disconnect : voice.connect}
-              >
-                <VoiceOrb state={voice.state} />
-                <span>
-                  {voice.state === "idle" || voice.state === "error"
-                    ? "Talk aloud"
-                    : voice.state === "connecting"
-                      ? "Connecting"
-                      : voice.state === "speaking"
-                        ? "Loreline speaking"
-                        : "Listening"}
-                </span>
-              </Button>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={readerMode}
-              onClick={() => {
-                const next = !readerMode;
-                setReaderMode(next);
-                if (next) void voice.startNarration();
-                else voice.stopNarration();
-              }}
-              className={cn(
-                "mt-3 flex w-full items-center justify-between rounded-2xl border px-3 py-2.5 text-left transition-colors",
-                readerMode
-                  ? "border-coral/45 bg-coral-soft/50"
-                  : "bg-background hover:bg-muted/55",
-              )}
-            >
-              <span className="flex items-center gap-2.5">
-                <span className="grid size-8 place-items-center rounded-full bg-card shadow-sm">
-                  <BookOpenText className="size-4 text-coral" />
-                </span>
-                <span>
-                  <span className="block text-xs font-semibold">
-                    Reader mode
-                  </span>
-                  <span className="block text-[0.64rem] text-muted-foreground">
-                    Narrate and turn pages automatically
-                  </span>
-                </span>
-              </span>
-              <span
-                className={cn(
-                  "flex h-5 w-9 items-center rounded-full p-0.5 transition-colors",
-                  readerMode ? "justify-end bg-coral" : "justify-start bg-muted",
-                )}
-              >
-                <span className="size-4 rounded-full bg-card shadow-sm" />
-              </span>
-            </button>
-            {voice.error && (
-              <p className="mt-2 text-[0.68rem] text-destructive">
-                {voice.error}
-              </p>
-            )}
-          </div>
-        </TabsContent>
+            </section>
+          )}
 
-        <TabsContent value="board" className="min-h-0 flex-1">
-          <ScrollArea className="h-full">
-            <div className="space-y-3 p-4">
-              {items.length === 0 ? (
-                <div className="dot-grid flex min-h-72 flex-col items-center justify-center rounded-2xl border bg-paper px-6 text-center">
-                  <span className="grid size-11 place-items-center rounded-xl bg-card shadow-sm">
-                    <Sparkles className="size-5 text-coral" />
-                  </span>
-                  <p className="mt-4 font-display text-2xl">
-                    A visual working space
-                  </p>
-                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                    Ask Loreline to show, compare, map, or visualize something.
-                    Notes and images will stay here while you read.
-                  </p>
-                </div>
-              ) : (
+          {!hasWorkspaceContent && (
+            <div className="dot-grid flex min-h-64 flex-col items-center justify-center rounded-2xl border bg-paper px-6 text-center">
+              <span className="grid size-11 place-items-center rounded-xl bg-card shadow-sm">
+                <Sparkles className="size-5 text-coral" />
+              </span>
+              <p className="mt-4 font-display text-2xl">Your thinking space</p>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                Speak to Loreline to explain, map, draw, or save an idea. The
+                results stay here beside the page.
+              </p>
+            </div>
+          )}
+
+          {items.length > 0 && (
+            <section>
+              <p className="mb-2 font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
+                On the board
+              </p>
+              <div className="space-y-3">
                 <AnimatePresence initial={false}>
                   {items.map((item) => (
                     <motion.article
@@ -588,7 +377,7 @@ function Sideboard({
                             ),
                           )
                         }
-                        className="absolute right-2 top-2 z-10 grid size-7 place-items-center rounded-full bg-background/80 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100"
+                        className="absolute right-2 top-2 z-10 grid size-7 place-items-center rounded-full bg-background/80 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                       >
                         <X className="size-3.5" />
                       </button>
@@ -627,78 +416,133 @@ function Sideboard({
                     </motion.article>
                   ))}
                 </AnimatePresence>
-              )}
-            </div>
-          </ScrollArea>
-        </TabsContent>
+              </div>
+            </section>
+          )}
 
-        <TabsContent value="notes" className="min-h-0 flex-1">
-          <ScrollArea className="h-full">
-            <div className="space-y-5 p-4">
-              {bookmarks.length > 0 && (
-                <section>
-                  <p className="mb-2 font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
-                    Bookmarks
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {bookmarks.map((bookmark) => (
-                      <span
-                        key={bookmark.id}
-                        className="inline-flex items-center rounded-full border bg-card shadow-sm"
-                      >
-                        <button
-                          className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-1 text-xs font-medium"
-                          onClick={() => onOpenBookmark(bookmark.page)}
-                        >
-                          <BookmarkCheck className="size-3.5 text-coral" />
-                          Page {bookmark.page}
-                        </button>
-                        <button
-                          aria-label={`Delete bookmark on page ${bookmark.page}`}
-                          className="grid size-7 place-items-center rounded-full text-muted-foreground hover:text-foreground"
-                          onClick={() => void onDeleteBookmark(bookmark.id)}
-                        >
-                          <X className="size-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </section>
-              )}
-              <section>
-                <p className="mb-2 font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
-                  Highlighted passages
+          {bookmarks.length > 0 && (
+            <section>
+              <p className="mb-2 font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
+                Bookmarks
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {bookmarks.map((bookmark) => (
+                  <span
+                    key={bookmark.id}
+                    className="inline-flex items-center rounded-full border bg-card shadow-sm"
+                  >
+                    <button
+                      className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-1 text-xs font-medium"
+                      onClick={() => onOpenBookmark(bookmark.page)}
+                    >
+                      <BookmarkCheck className="size-3.5 text-coral" />
+                      Page {bookmark.page}
+                    </button>
+                    <button
+                      aria-label={`Delete bookmark on page ${bookmark.page}`}
+                      className="grid size-7 place-items-center rounded-full text-muted-foreground hover:text-foreground"
+                      onClick={() => void onDeleteBookmark(bookmark.id)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {currentPageHighlights.length > 0 && (
+            <section>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-foreground">
+                  On this page
                 </p>
-                {highlights.length ? (
-                  <div className="space-y-3">
-                    {highlights.map((highlight) => (
-                      <SavedHighlightCard
-                        key={`${highlight.id}:${highlight.note ?? ""}`}
-                        highlight={highlight}
-                        onOpen={() => onOpenHighlight(highlight)}
-                        onUpdate={(note) =>
-                          onUpdateHighlight(highlight.id, note)
-                        }
-                        onDelete={() => onDeleteHighlight(highlight.id)}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-dashed bg-paper p-6 text-center">
-                    <Highlighter className="mx-auto size-5 text-coral" />
-                    <p className="mt-3 text-sm font-semibold">
-                      Your passages will live here
-                    </p>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      Select text in the PDF to highlight it or attach a note.
-                    </p>
-                  </div>
-                )}
-              </section>
-            </div>
-          </ScrollArea>
-        </TabsContent>
-      </Tabs>
+                <span className="rounded-full bg-reader-highlight/55 px-2 py-0.5 text-[0.6rem] font-semibold text-foreground">
+                  {currentPageHighlights.length}
+                </span>
+              </div>
+              <div className="min-w-0 space-y-2.5">
+                {currentPageHighlights.map((highlight) => (
+                  <SavedHighlightCard
+                    key={highlight.id}
+                    highlight={highlight}
+                    onOpen={() => onOpenHighlight(highlight)}
+                    onUpdate={(note) => onUpdateHighlight(highlight.id, note)}
+                    onDelete={() => onDeleteHighlight(highlight.id)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {otherHighlights.length > 0 && (
+            <section>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
+                  Other pages
+                </p>
+                <span className="text-[0.62rem] text-muted-foreground">
+                  {otherHighlights.length} saved
+                </span>
+              </div>
+              <div className="min-w-0 space-y-2.5">
+                {otherHighlights.map((highlight) => (
+                  <SavedHighlightCard
+                    key={highlight.id}
+                    highlight={highlight}
+                    onOpen={() => onOpenHighlight(highlight)}
+                    onUpdate={(note) => onUpdateHighlight(highlight.id, note)}
+                    onDelete={() => onDeleteHighlight(highlight.id)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      </ScrollArea>
+
+      <div className="space-y-2.5 border-t bg-background/75 p-3 backdrop-blur-xl">
+        <button
+          type="button"
+          onClick={voice.connected ? voice.disconnect : voice.connect}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-2xl border p-2.5 text-left shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            voice.connected
+              ? "border-coral/45 bg-coral-soft/50"
+              : "bg-card hover:bg-muted/55",
+          )}
+        >
+          <VoiceOrb state={voice.state} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">{voiceLabel}</span>
+            <span className="block truncate text-[0.66rem] text-muted-foreground">
+              {voice.connected
+                ? "Tap to end the voice session"
+                : "Ask, navigate, draw, or save notes"}
+            </span>
+          </span>
+          {voice.connected && (
+            <span className="mr-1 flex items-center gap-1" aria-hidden="true">
+              {[0, 1, 2].map((bar) => (
+                <motion.span
+                  key={bar}
+                  className="w-0.5 rounded-full bg-coral"
+                  animate={{ height: [5, 14, 7] }}
+                  transition={{
+                    duration: 0.85,
+                    delay: bar * 0.12,
+                    repeat: Infinity,
+                  }}
+                />
+              ))}
+            </span>
+          )}
+        </button>
+
+        {voice.error && (
+          <p className="px-1 text-[0.68rem] text-destructive">{voice.error}</p>
+        )}
+      </div>
     </aside>
   );
 }
@@ -740,6 +584,8 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   const [numPages, setNumPages] = useState(book.pageCount || 1);
   const [zoom, setZoom] = useState(1);
   const [sideboardOpen, setSideboardOpen] = useState(true);
+  const [sideboardWidth, setSideboardWidth] = useState(368);
+  const [resizingSideboard, setResizingSideboard] = useState(false);
   const [pointer, setPointer] = useState<PointerContext>(null);
   const [selection, setSelection] = useState<ReaderSelection | null>(null);
   const [activeFocus, setActiveFocus] = useState<ReaderFocus | null>(null);
@@ -761,6 +607,34 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   const [noteSelection, setNoteSelection] =
     useState<ReaderSelection | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+
+  const resizeSideboard = useCallback((clientX: number) => {
+    const maxWidth = Math.max(320, Math.min(720, window.innerWidth - 480));
+    setSideboardWidth(
+      Math.round(Math.min(maxWidth, Math.max(320, window.innerWidth - clientX))),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!resizingSideboard) return;
+    const onPointerMove = (event: PointerEvent) =>
+      resizeSideboard(event.clientX);
+    const finish = () => setResizingSideboard(false);
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    };
+  }, [resizeSideboard, resizingSideboard]);
 
   const highlightsQuery = useQuery({
     queryKey: ["highlights", bookId],
@@ -1158,7 +1032,12 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
             variant="ghost"
             size="icon-sm"
             aria-label="Zoom out"
-            onClick={() => setZoom((value) => Math.max(0.65, value - 0.1))}
+            onClick={() =>
+              setZoom((value) =>
+                Math.max(0.5, Number((value - 0.05).toFixed(2))),
+              )
+            }
+            disabled={zoom <= 0.5}
           >
             <Minus />
           </Button>
@@ -1169,7 +1048,12 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
             variant="ghost"
             size="icon-sm"
             aria-label="Zoom in"
-            onClick={() => setZoom((value) => Math.min(1.6, value + 0.1))}
+            onClick={() =>
+              setZoom((value) =>
+                Math.min(4, Number((value + 0.05).toFixed(2))),
+              )
+            }
+            disabled={zoom >= 4}
           >
             <Plus />
           </Button>
@@ -1200,8 +1084,13 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
       <div
         className={cn(
           "grid min-h-0 flex-1",
-          sideboardOpen ? "xl:grid-cols-[minmax(0,1fr)_23rem]" : "grid-cols-1",
+          sideboardOpen
+            ? "xl:grid-cols-[minmax(0,1fr)_var(--workspace-width)]"
+            : "grid-cols-1",
         )}
+        style={
+          { "--workspace-width": `${sideboardWidth}px` } as CSSProperties
+        }
       >
         <div className="relative min-h-0 overflow-hidden">
           <div
@@ -1234,7 +1123,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
           {selection && (
             <div className="absolute inset-x-3 bottom-4 z-30 mx-auto flex max-w-xl items-center gap-2 rounded-2xl border bg-background/95 p-2 pl-3 shadow-float backdrop-blur-xl">
               <p className="min-w-0 flex-1 text-xs font-medium text-ink-soft">
-                {selection.text.split(/\s+/).length} words selected
+                {selection.text.split(/\s+/).length} words · Cmd/Ctrl-drag to add
               </p>
               <Button
                 variant="secondary"
@@ -1273,7 +1162,38 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
               className="fixed inset-x-0 bottom-0 top-14 z-40 bg-foreground/20 backdrop-blur-sm xl:hidden"
               onClick={() => setSideboardOpen(false)}
             />
-            <div className="fixed bottom-0 right-0 top-14 z-50 w-[min(92vw,23rem)] xl:static xl:z-auto xl:h-full xl:w-auto xl:min-h-0">
+            <div className="fixed bottom-0 right-0 top-14 z-50 w-[min(92vw,23rem)] overflow-hidden xl:relative xl:inset-auto xl:z-auto xl:h-full xl:w-auto xl:min-h-0">
+              <div
+                role="separator"
+                aria-label="Resize workspace"
+                aria-orientation="vertical"
+                aria-valuemin={320}
+                aria-valuemax={720}
+                aria-valuenow={sideboardWidth}
+                tabIndex={0}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  setResizingSideboard(true);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowLeft") {
+                    event.preventDefault();
+                    setSideboardWidth((width) => Math.min(720, width + 16));
+                  }
+                  if (event.key === "ArrowRight") {
+                    event.preventDefault();
+                    setSideboardWidth((width) => Math.max(320, width - 16));
+                  }
+                }}
+                className="group absolute inset-y-0 left-0 z-20 hidden w-3 -translate-x-1/2 cursor-col-resize touch-none place-items-center outline-none xl:grid"
+              >
+                <span
+                  className={cn(
+                    "h-14 w-1 rounded-full bg-border transition-colors group-hover:bg-coral group-focus-visible:bg-coral",
+                    resizingSideboard && "bg-coral",
+                  )}
+                />
+              </div>
               {sideboard}
             </div>
           </>
