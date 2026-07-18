@@ -290,9 +290,25 @@ export const highlights = pgTable(
   (table) => [index("highlights_book_idx").on(table.bookId, table.page)],
 );
 
-export const bookRelations = relations(books, ({ many }) => ({
+export const bookRelations = relations(books, ({ one, many }) => ({
+  folder: one(folders, {
+    fields: [books.folderId],
+    references: [folders.id],
+  }),
   chunks: many(bookChunks),
   conversations: many(conversations),
   illustrations: many(illustrations),
   highlights: many(highlights),
+}));
+
+export const folderRelations = relations(folders, ({ one, many }) => ({
+  books: many(books),
+  parent: one(folders, {
+    fields: [folders.parentId],
+    references: [folders.id],
+    relationName: "folderHierarchy",
+  }),
+  children: many(folders, {
+    relationName: "folderHierarchy",
+  }),
 }));
