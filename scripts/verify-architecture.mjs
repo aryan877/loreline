@@ -17,7 +17,10 @@ async function walk(url, options = {}) {
   const files = [];
   for (const entry of entries) {
     if (options.ignore?.has(entry.name)) continue;
-    const child = new URL(`${entry.name}${entry.isDirectory() ? "/" : ""}`, url);
+    const child = new URL(
+      `${entry.name}${entry.isDirectory() ? "/" : ""}`,
+      url,
+    );
     if (entry.isDirectory()) files.push(...(await walk(child, options)));
     else files.push(child);
   }
@@ -31,7 +34,13 @@ const serverDependencies = {
   ...serverPackage.dependencies,
   ...serverPackage.devDependencies,
 };
-for (const dependency of ["next", "@next/env", "react", "react-dom", "server-only"]) {
+for (const dependency of [
+  "next",
+  "@next/env",
+  "react",
+  "react-dom",
+  "server-only",
+]) {
   if (dependency in serverDependencies) {
     failures.push(`apps/server still depends on ${dependency}`);
   }
@@ -59,6 +68,9 @@ for (const file of sourceFiles) {
   if (/from\s+["']next(?:\/|["'])|import\s+["']server-only["']/.test(source)) {
     failures.push(`framework import leaked into ${name}`);
   }
+  if (/export\s+const\s+(?:runtime|dynamic|revalidate)\s*=/.test(source)) {
+    failures.push(`Next.js route metadata leaked into ${name}`);
+  }
   if (/\bvoid\s+indexBook\s*\(/.test(source)) {
     failures.push(`detached indexing job exists in ${name}`);
   }
@@ -67,7 +79,9 @@ for (const file of sourceFiles) {
 const sourceTopLevel = await readdir(sourceRoot, { withFileTypes: true });
 for (const entry of sourceTopLevel) {
   if (entry.isFile() && entry.name !== "main.ts") {
-    failures.push(`loose server source file exists: apps/server/src/${entry.name}`);
+    failures.push(
+      `loose server source file exists: apps/server/src/${entry.name}`,
+    );
   }
 }
 
@@ -77,12 +91,22 @@ for (const base of [new URL("apps/", root), new URL("packages/", root)]) {
     const current = directories.pop();
     const entries = await readdir(current, { withFileTypes: true });
     if (!entries.length) {
-      failures.push(`empty directory exists: ${relative(root.pathname, current.pathname)}`);
+      failures.push(
+        `empty directory exists: ${relative(root.pathname, current.pathname)}`,
+      );
     }
     for (const entry of entries) {
       if (
         entry.isDirectory() &&
-        !new Set(["node_modules", ".next", ".next-docker", ".turbo", "coverage", "dist", "build"]).has(entry.name)
+        !new Set([
+          "node_modules",
+          ".next",
+          ".next-docker",
+          ".turbo",
+          "coverage",
+          "dist",
+          "build",
+        ]).has(entry.name)
       ) {
         directories.push(new URL(`${entry.name}/`, current));
       }
@@ -99,5 +123,7 @@ if (failures.length) {
   console.error(failures.map((failure) => `- ${failure}`).join("\n"));
   process.exitCode = 1;
 } else {
-  console.log("Architecture verified: Next.js is web-only and the Effect server is clean.");
+  console.log(
+    "Architecture verified: Next.js is web-only and the Effect server is clean.",
+  );
 }

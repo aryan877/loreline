@@ -1,4 +1,6 @@
 import {
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -31,6 +33,12 @@ export class StorageService extends Context.Tag("Loreline/Storage")<
       contentType: string,
     ) => Effect.Effect<void, ServiceError>;
     readonly get: (key: string) => Effect.Effect<Uint8Array, ServiceError>;
+    readonly deletePrefix: (
+      prefix: string,
+    ) => Effect.Effect<void, ServiceError>;
+    readonly deleteObject: (
+      key: string,
+    ) => Effect.Effect<void, ServiceError>;
     readonly createUploadUrl: (
       key: string,
       size: number,
@@ -81,6 +89,48 @@ export const StorageLive = Layer.effect(
             return new Uint8Array(await result.Body.transformToByteArray());
           },
           catch: (cause) => new ServiceError({ operation: "r2.get", cause }),
+        }),
+      deletePrefix: (prefix: string) =>
+        Effect.tryPromise({
+          try: async () => {
+            while (true) {
+              const page = await client.send(
+                new ListObjectsV2Command({
+                  Bucket: config.r2BucketName,
+                  Prefix: prefix,
+                  MaxKeys: 1_000,
+                }),
+              );
+              const objects = (page.Contents ?? []).flatMap(({ Key }) =>
+                Key ? [{ Key }] : [],
+              );
+              if (objects.length === 0) return;
+              const deleted = await client.send(
+                new DeleteObjectsCommand({
+                  Bucket: config.r2BucketName,
+                  Delete: { Objects: objects, Quiet: true },
+                }),
+              );
+              if (deleted.Errors?.length)
+                throw new Error("R2 reported an incomplete prefix deletion.");
+            }
+          },
+          catch: (cause) =>
+            new ServiceError({ operation: "r2.deletePrefix", cause }),
+        }),
+      deleteObject: (key: string) =>
+        Effect.tryPromise({
+          try: () =>
+            client
+              .send(
+                new DeleteObjectCommand({
+                  Bucket: config.r2BucketName,
+                  Key: key,
+                }),
+              )
+              .then(() => undefined),
+          catch: (cause) =>
+            new ServiceError({ operation: "r2.deleteObject", cause }),
         }),
       createUploadUrl: (key: string, size: number, contentType: string) =>
         Effect.tryPromise({

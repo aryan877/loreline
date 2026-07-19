@@ -32,6 +32,10 @@ const bookPreparationFields = {
   errorMessage: z.string().nullable(),
 };
 
+export const getBooksInputSchema = z.object({
+  folderId: bookIdSchema.nullish(),
+});
+
 export const beginBookUploadInputSchema = z.object({
   fileName: z
     .string()
@@ -46,6 +50,7 @@ export const beginBookUploadInputSchema = z.object({
   contentType: z.literal("application/pdf"),
   title: z.string().trim().max(180).optional(),
   author: z.string().trim().max(180).optional(),
+  folderId: bookIdSchema.nullable().optional(),
 });
 export type BeginBookUploadInput = z.infer<
   typeof beginBookUploadInputSchema
@@ -96,6 +101,11 @@ export type ReaderBook = z.infer<typeof readerBookSchema>;
 
 export const bookResponseSchema = z.object({ book: readerBookSchema });
 export type BookResponse = z.infer<typeof bookResponseSchema>;
+
+export const deleteBookResponseSchema = z.object({
+  book: z.object({ id: bookIdSchema }),
+});
+export type DeleteBookResponse = z.infer<typeof deleteBookResponseSchema>;
 
 export const uploadBookResponseSchema = z.object({
   book: readerBookSchema

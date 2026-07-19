@@ -40,6 +40,7 @@ CREATE TABLE "bookmarks" (
 CREATE TABLE "books" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" text NOT NULL,
+	"folder_id" uuid,
 	"title" text NOT NULL,
 	"author" text,
 	"object_key" text NOT NULL,
@@ -60,6 +61,17 @@ CREATE TABLE "books" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"last_opened_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "folders" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" text NOT NULL,
+	"parent_id" uuid,
+	"name" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "folders_id_user_unique" UNIQUE("id","user_id"),
+	CONSTRAINT "folders_user_parent_name_unique" UNIQUE NULLS NOT DISTINCT("user_id","parent_id","name")
 );
 --> statement-breakpoint
 CREATE TABLE "highlights" (
@@ -120,6 +132,9 @@ ALTER TABLE "book_chunks" ADD CONSTRAINT "book_chunks_user_id_user_id_fk" FOREIG
 ALTER TABLE "bookmarks" ADD CONSTRAINT "bookmarks_book_id_books_id_fk" FOREIGN KEY ("book_id") REFERENCES "public"."books"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "bookmarks" ADD CONSTRAINT "bookmarks_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "books" ADD CONSTRAINT "books_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "books" ADD CONSTRAINT "books_folder_owner_fk" FOREIGN KEY ("folder_id","user_id") REFERENCES "public"."folders"("id","user_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "folders" ADD CONSTRAINT "folders_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "folders" ADD CONSTRAINT "folders_parent_owner_fk" FOREIGN KEY ("parent_id","user_id") REFERENCES "public"."folders"("id","user_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "highlights" ADD CONSTRAINT "highlights_book_id_books_id_fk" FOREIGN KEY ("book_id") REFERENCES "public"."books"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "highlights" ADD CONSTRAINT "highlights_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "illustrations" ADD CONSTRAINT "illustrations_book_id_books_id_fk" FOREIGN KEY ("book_id") REFERENCES "public"."books"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -130,8 +145,11 @@ CREATE INDEX "book_chunks_book_user_idx" ON "book_chunks" USING btree ("book_id"
 CREATE INDEX "book_chunks_search_idx" ON "book_chunks" USING gin ("search_vector");--> statement-breakpoint
 CREATE INDEX "book_chunks_embedding_idx" ON "book_chunks" USING hnsw ("embedding" vector_cosine_ops) WHERE "book_chunks"."embedding" is not null;--> statement-breakpoint
 CREATE UNIQUE INDEX "bookmarks_book_user_page_idx" ON "bookmarks" USING btree ("book_id","user_id","page");--> statement-breakpoint
-CREATE INDEX "books_user_recent_idx" ON "books" USING btree ("user_id","last_opened_at");--> statement-breakpoint
+CREATE INDEX "books_folder_user_idx" ON "books" USING btree ("folder_id","user_id");--> statement-breakpoint
+CREATE INDEX "books_user_folder_recent_idx" ON "books" USING btree ("user_id","folder_id","last_opened_at");--> statement-breakpoint
 CREATE INDEX "books_indexing_queue_idx" ON "books" USING btree ("indexing_status","indexing_updated_at") WHERE "books"."status" = 'ready' and "books"."indexing_status" <> 'ready';--> statement-breakpoint
+CREATE INDEX "folders_user_idx" ON "folders" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "folders_parent_user_idx" ON "folders" USING btree ("parent_id","user_id");--> statement-breakpoint
 CREATE INDEX "highlights_book_idx" ON "highlights" USING btree ("book_id","page");--> statement-breakpoint
 CREATE INDEX "illustrations_book_idx" ON "illustrations" USING btree ("book_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "session_token_idx" ON "session" USING btree ("token");--> statement-breakpoint

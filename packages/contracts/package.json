@@ -8,6 +8,7 @@
     "./auth": "./src/auth.ts",
     "./bookmarks": "./src/bookmarks.ts",
     "./books": "./src/books.ts",
+    "./folders": "./src/folders.ts",
     "./highlights": "./src/highlights.ts",
     "./reader": "./src/reader.ts",
     "./domain/reader": "./src/domain/reader.ts"

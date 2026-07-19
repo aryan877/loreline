@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   customType,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -11,6 +12,7 @@ import {
   real,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
   vector,
@@ -109,6 +111,38 @@ export const bookIndexingStatus = pgEnum("book_indexing_status", [
   "ready",
   "failed",
 ]);
+
+export const folders = pgTable(
+  "folders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    parentId: uuid("parent_id"),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("folders_user_idx").on(table.userId),
+    index("folders_parent_user_idx").on(table.parentId, table.userId),
+    unique("folders_id_user_unique").on(table.id, table.userId),
+    unique("folders_user_parent_name_unique")
+      .on(table.userId, table.parentId, table.name)
+      .nullsNotDistinct(),
+    foreignKey({
+      name: "folders_parent_owner_fk",
+      columns: [table.parentId, table.userId],
+      foreignColumns: [table.id, table.userId],
+    }).onDelete("cascade"),
+  ],
+);
+
 export const books = pgTable(
   "books",
   {
@@ -116,6 +150,7 @@ export const books = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    folderId: uuid("folder_id"),
     title: text("title").notNull(),
     author: text("author"),
     objectKey: text("object_key").notNull(),
@@ -150,7 +185,17 @@ export const books = pgTable(
       .defaultNow(),
   },
   (table) => [
-    index("books_user_recent_idx").on(table.userId, table.lastOpenedAt),
+    index("books_folder_user_idx").on(table.folderId, table.userId),
+    foreignKey({
+      name: "books_folder_owner_fk",
+      columns: [table.folderId, table.userId],
+      foreignColumns: [folders.id, folders.userId],
+    }).onDelete("cascade"),
+    index("books_user_folder_recent_idx").on(
+      table.userId,
+      table.folderId,
+      table.lastOpenedAt,
+    ),
     index("books_indexing_queue_idx")
       .on(table.indexingStatus, table.indexingUpdatedAt)
       .where(sql`${table.status} = 'ready' and ${table.indexingStatus} <> 'ready'`),
@@ -262,7 +307,21 @@ export const bookmarks = pgTable(
   ],
 );
 
-export const bookRelations = relations(books, ({ many }) => ({
+export const folderRelations = relations(folders, ({ many, one }) => ({
+  parent: one(folders, {
+    fields: [folders.parentId],
+    references: [folders.id],
+    relationName: "folderHierarchy",
+  }),
+  children: many(folders, { relationName: "folderHierarchy" }),
+  books: many(books),
+}));
+
+export const bookRelations = relations(books, ({ many, one }) => ({
+  folder: one(folders, {
+    fields: [books.folderId],
+    references: [folders.id],
+  }),
   chunks: many(bookChunks),
   illustrations: many(illustrations),
   highlights: many(highlights),

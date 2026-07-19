@@ -16,6 +16,7 @@ Loreline keeps the book—not a chat box—at the center of the experience. It r
 | On-demand vision | The agent calls `inspect_page` only when pixels matter; a bounded page image can include the live cursor marker |
 | Grounded retrieval | Immediate Postgres full-text search plus resumable OpenRouter embeddings and pgvector HNSW retrieval |
 | Durable ingestion | Direct browser-to-R2 upload, server-side PDF validation/extraction, Redis Stream jobs, database progress, retry, and crash recovery |
+| Nested library | Shelf and Stack navigation, arbitrary nesting, breadcrumb paths, drag-and-drop moves, and folder-aware uploads |
 | Reader workspace | Notes and generated visuals live beside the page; saved notes stay linked to exact highlighted text |
 | Private ownership | Better Auth sessions, account-scoped R2 keys, owner checks on every book route, and Redis-backed limits |
 | Predictable client state | TanStack Query owns server state, polling, pagination, mutations, invalidation, and global error toasts |
@@ -87,10 +88,16 @@ apps/server/src
 ├── modules
 │   ├── auth/                       Better Auth boundary
 │   ├── books/
-│   │   ├── routes/                 upload, completion, file, item, search, retry
+│   │   ├── routes/                 upload, completion, file, item, move, search, retry
 │   │   ├── index-queue.ts          Redis Stream producer + supervised consumer
 │   │   ├── indexing.ts             leases, batches, retries, persisted progress
+│   │   ├── service.ts              book lifecycle and private R2 cleanup
 │   │   └── text.ts                 page-accurate sentence chunking
+│   ├── folders/
+│   │   ├── routes/                 collection, item, move, tree, breadcrumb
+│   │   ├── repository.ts           owner-scoped Drizzle queries and recursive CTE
+│   │   ├── service.ts              nesting rules and recursive deletion workflow
+│   │   └── tree.ts                 pure hierarchy and breadcrumb construction
 │   ├── annotations/routes/         highlights, notes, bookmarks
 │   ├── ai/
 │   │   ├── routes/                 realtime, compaction, illustration endpoints
@@ -99,6 +106,19 @@ apps/server/src
 │   └── system/                     health checks
 └── platform/                       config, HTTP errors, Redis, managed services
 ```
+
+### Shelf, Stacks, and deletion
+
+The Shelf is the root view; it is not a separate database row. A Stack is an owner-scoped `folders` row, and `parent_id` creates arbitrary nesting:
+
+```text
+Shelf
+└── Work                    folders: work.parent_id = NULL
+    └── History             folders: history.parent_id = work
+        └── history-notes.pdf  books: folder_id = history
+```
+
+Card counters intentionally show direct children. The delete dialog asks the server for a recursive subtree summary, requires the exact Stack name, and the delete request resolves that subtree again rather than trusting cached UI counts. Every affected book prefix is cleared from R2; Postgres cascades the confirmed root deletion through nested Stacks and dependent book data.
 
 ## PDF upload and RAG
 
@@ -178,6 +198,8 @@ http://localhost:3000/api/auth/callback/google
 
 - PDFs are capped at 50 MB at the shared contract, API, signed upload, and UI boundaries.
 - Object keys begin with `users/{userId}/books/{bookId}/`; book routes always re-check the authenticated owner.
+- Folder parent and book-folder links use composite owner foreign keys, so Postgres rejects cross-account nesting even if application validation regresses.
+- Deleting a book or confirmed Stack clears its complete private R2 prefix. Stack deletion recursively cascades its database books, child Stacks, chunks, highlights, notes, bookmarks, and illustration records.
 - Completion verifies exact R2 byte count, MIME intent, and PDF magic bytes before parsing.
 - Unknown failures are logged server-side and return a generic message. Only deliberate `HttpError`/`UserFacingError` text reaches users.
 - OpenRouter requests deny provider data collection where supported. Model API keys stay server-side.

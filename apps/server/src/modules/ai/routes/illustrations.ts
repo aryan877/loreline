@@ -79,6 +79,8 @@ export async function POST(request: Request) {
               id: illustrations.id,
               createdAt: illustrations.createdAt,
             }),
+        ).pipe(
+          Effect.tapError(() => storage.deleteObject(objectKey).pipe(Effect.ignore)),
         );
         return illustrationResponseSchema.parse({
           id: saved.id,

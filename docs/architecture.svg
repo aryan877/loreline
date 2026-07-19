@@ -27,8 +27,8 @@
   <text x="106" y="259" class="body">• App Router UI and Better Auth screens</text>
   <text x="106" y="287" class="body">• PDF.js canvas + exact text layer</text>
   <text x="106" y="315" class="body">• TanStack Query server state</text>
-  <text x="106" y="343" class="body">• WebRTC realtime voice session</text>
-  <text x="106" y="371" class="body">• Browser-side reader tools</text>
+  <text x="106" y="343" class="body">• Nested Shelf / Stack drag and drop</text>
+  <text x="106" y="371" class="body">• WebRTC voice + browser reader tools</text>
   <rect x="106" y="398" width="274" height="52" rx="13" fill="#fffef5" stroke="#c9c8ae"/>
   <text x="243" y="420" text-anchor="middle" class="small">SAME-ORIGIN /API GATEWAY</text>
   <text x="243" y="440" text-anchor="middle" class="body">2 MB cap · rejects PDF bodies</text>
@@ -38,8 +38,8 @@
   <text x="503" y="259" class="body">• @effect/platform-node router</text>
   <text x="503" y="287" class="body">• Better Auth + ownership checks</text>
   <text x="503" y="315" class="body">• Feature modules and Zod boundaries</text>
-  <text x="503" y="343" class="body">• R2 signing and PDF validation</text>
-  <text x="503" y="371" class="body">• Hybrid FTS + vector retrieval</text>
+  <text x="503" y="343" class="body">• R2 signing, validation, prefix cleanup</text>
+  <text x="503" y="371" class="body">• Recursive Stack lifecycle + hybrid RAG</text>
   <rect x="503" y="398" width="274" height="52" rx="13" fill="#fffef5" stroke="#c9c8ae"/>
   <text x="640" y="420" text-anchor="middle" class="small">SCOPED INDEX WORKER</text>
   <text x="640" y="440" text-anchor="middle" class="body">Redis group · lease · crash recovery</text>
@@ -52,7 +52,7 @@
   <rect x="900" y="348" width="274" height="102" rx="14" fill="#fffef5" stroke="#c9c8ae"/>
   <text x="920" y="374" class="small">PACKAGES/DATABASE</text>
   <text x="920" y="400" class="body">Drizzle schema + clean baseline migration</text>
-  <text x="920" y="426" class="body">pgvector, FTS, ownership indexes</text>
+  <text x="920" y="426" class="body">pgvector, FTS, owner-scoped tree FKs</text>
 
   <path d="M408 310H475" class="arrow"/>
   <text x="442" y="299" text-anchor="middle" class="small">JSON</text>
@@ -75,7 +75,7 @@
   <text x="405" y="699" text-anchor="middle" class="body">durable index stream</text>
   <text x="641" y="650" text-anchor="middle" class="heading">Cloudflare R2</text>
   <text x="641" y="678" text-anchor="middle" class="body">private PDFs + visuals</text>
-  <text x="641" y="699" text-anchor="middle" class="body">signed direct uploads</text>
+  <text x="641" y="699" text-anchor="middle" class="body">signed upload · prefix deletion</text>
   <text x="877" y="650" text-anchor="middle" class="heading">OpenAI</text>
   <text x="877" y="678" text-anchor="middle" class="body">Realtime voice only</text>
   <text x="877" y="699" text-anchor="middle" class="body">ephemeral WebRTC key</text>

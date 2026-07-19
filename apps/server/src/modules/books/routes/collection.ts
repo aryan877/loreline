@@ -1,10 +1,11 @@
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, isNull, lt } from "drizzle-orm";
 import { Effect } from "effect";
 import { books } from "@loreline/database/schema";
 import {
   beginBookUploadInputSchema,
   beginBookUploadResponseSchema,
   booksPageResponseSchema,
+  getBooksInputSchema,
 } from "@loreline/contracts/books";
 import {
   apiError,
@@ -17,13 +18,15 @@ import {
   runServerEffect,
   StorageService,
 } from "@/platform/services";
-
-export const runtime = "nodejs";
+import { FolderService } from "@/modules/folders/service";
 
 export async function GET(request: Request) {
   try {
     const session = await requireSession(request);
     const url = new URL(request.url);
+    const input = getBooksInputSchema.parse({
+      folderId: url.searchParams.get("folderId"),
+    });
     const limit = Math.min(
       Math.max(Number(url.searchParams.get("limit")) || 12, 1),
       50,
@@ -57,6 +60,9 @@ export async function GET(request: Request) {
             .where(
               and(
                 eq(books.userId, session.user.id),
+                input.folderId
+                  ? eq(books.folderId, input.folderId)
+                  : isNull(books.folderId),
                 cursorDate ? lt(books.lastOpenedAt, cursorDate) : undefined,
               ),
             )
@@ -104,6 +110,8 @@ export async function POST(request: Request) {
       Effect.gen(function* () {
         const { db } = yield* DatabaseService;
         const storage = yield* StorageService;
+        if (input.folderId)
+          yield* FolderService.getFolder(session.user.id, input.folderId);
         const bookId = crypto.randomUUID();
         const safeName = input.fileName
           .replace(/[^a-zA-Z0-9._-]/g, "-")
@@ -125,6 +133,7 @@ export async function POST(request: Request) {
             .values({
               id: bookId,
               userId: session.user.id,
+              folderId: input.folderId ?? null,
               title: input.title || detectedTitle,
               author: input.author || null,
               objectKey,

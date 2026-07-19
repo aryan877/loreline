@@ -18,3 +18,34 @@ test("returns OAuth failures to a clean sign-in screen", async ({ page }) => {
   ).toBeVisible();
   await expect(page).toHaveURL("/sign-in");
 });
+
+test("creates nested stacks and confirms recursive deletion", async ({
+  page,
+}) => {
+  const email = `stack-flow-${Date.now()}@example.invalid`;
+
+  await page.goto("/sign-in");
+  await page.getByRole("button", { name: "Create an account" }).click();
+  await page.getByLabel("Name").fill("Stack Flow Check");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill("temporary-password-20260719");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page.getByRole("heading", { name: "Library" })).toBeVisible();
+
+  await page.getByRole("button", { name: "New stack" }).click();
+  await page.getByLabel("Stack name").fill("Work");
+  await page.getByRole("button", { name: "Create stack" }).click();
+  await page.getByRole("link", { name: /Work/ }).click();
+
+  await page.getByRole("button", { name: "New stack" }).click();
+  await page.getByLabel("Stack name").fill("History");
+  await page.getByRole("button", { name: "Create stack" }).click();
+  await page.getByRole("button", { name: "Shelf" }).click();
+
+  await page.getByRole("button", { name: "Actions for Work" }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await expect(page.getByText("1 nested stack", { exact: true })).toBeVisible();
+  await page.getByLabel(/Type Work to confirm/).fill("Work");
+  await page.getByRole("button", { name: "Delete stack" }).click();
+  await expect(page.getByRole("link", { name: /Work/ })).toHaveCount(0);
+});

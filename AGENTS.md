@@ -19,6 +19,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - PDF bytes upload directly from the browser to Cloudflare R2 using short-lived S3-compatible presigned URLs issued by the authenticated Effect API. Next.js forwards metadata/JSON only; never proxy upload bodies through either app and never expose R2 credentials to browser code.
 - Preserve the 50 MB PDF limit, account-scoped object keys, upload rate limits, MIME checks, and PDF magic-byte validation.
 - Keep retrieval usable while embeddings build: page-accurate text chunks and Postgres FTS are immediate; semantic vectors are resumable and hybrid-ranked when ready.
+- `Shelf` and `Stack` are UI terms only: the Shelf is the root view (`folder_id IS NULL`) and Stacks are rows in `folders`. Preserve composite owner foreign keys for folder parents and book placement. Confirm recursive Stack deletion in the UI, re-resolve the subtree on the server, clear every affected `users/{userId}/books/{bookId}/` R2 prefix, and let database cascades remove nested records.
 - The checked-in Drizzle history is a clean pre-launch baseline. When the user explicitly authorizes a data reset, prefer a truthful new baseline over legacy backfills; otherwise generate forward-only migrations normally.
 - Use theme tokens from `src/app/globals.css`; do not hardcode product colors in components.
 - Run `npm run typecheck`, `npm run lint`, and `npm test -- --run` after meaningful changes. Use Playwright for rendered UI and critical-flow verification.

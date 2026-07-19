@@ -8,6 +8,8 @@ When dependencies change under Docker development, remember that the named `/app
 
 PDF uploads are true browser-to-R2 presigned `PUT` requests. The authenticated Effect API authorizes metadata and signs the URL; Next.js only forwards bounded JSON. Do not introduce an upload proxy or Worker gateway.
 
+The Shelf is the root library view and Stacks are owner-scoped `folders` rows. Preserve the composite ownership constraints, typed confirmation for recursive Stack deletion, server-side subtree resolution, full per-book R2-prefix cleanup, and database cascades.
+
 Postgres owns indexing truth and progress. Redis Streams provide at-least-once job delivery; the database lease, null-vector resume, and per-batch commits make retries safe. Do not move embedding back into the completion request or fire detached work from a handler.
 
 Shared contracts belong in `packages/contracts`, the schema and clean migration baseline belong in `packages/database`, and README architecture diagrams under `docs/` must change with the implementation.

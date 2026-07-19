@@ -26,8 +26,25 @@ import {
 import { POST as completeBook } from "@/modules/books/routes/completion";
 import { GET as getBookFile } from "@/modules/books/routes/file";
 import { POST as retryBookIndex } from "@/modules/books/routes/index";
-import { GET as getBook, PATCH as updateBook } from "@/modules/books/routes/item";
+import {
+  DELETE as deleteBook,
+  GET as getBook,
+  PATCH as updateBook,
+} from "@/modules/books/routes/item";
+import { POST as moveBook } from "@/modules/books/routes/move";
 import { POST as searchBook } from "@/modules/books/routes/search";
+import {
+  GET as listFolders,
+  POST as createFolder,
+} from "@/modules/folders/routes/collection";
+import { GET as getFolderBreadcrumb } from "@/modules/folders/routes/breadcrumb";
+import {
+  DELETE as deleteFolder,
+  GET as getFolder,
+  PATCH as updateFolder,
+} from "@/modules/folders/routes/item";
+import { POST as moveFolder } from "@/modules/folders/routes/move";
+import { GET as getFolderTree } from "@/modules/folders/routes/tree";
 import { GET as getHealth } from "@/modules/system/health";
 import { apiError, HttpError } from "@/platform/http";
 
@@ -113,6 +130,14 @@ const BooksRouter = HttpRouter.empty.pipe(
     "/api/books/:bookId",
     adaptWithParams(["bookId"], updateBook),
   ),
+  HttpRouter.del(
+    "/api/books/:bookId",
+    adaptWithParams(["bookId"], deleteBook),
+  ),
+  HttpRouter.post(
+    "/api/books/:bookId/move",
+    adaptWithParams(["bookId"], moveBook),
+  ),
   HttpRouter.post(
     "/api/books/:bookId/complete",
     adaptWithParams(["bookId"], completeBook),
@@ -126,6 +151,32 @@ const BooksRouter = HttpRouter.empty.pipe(
     adaptWithParams(["bookId"], getBookFile),
   ),
   HttpRouter.post("/api/search", adapt(searchBook)),
+);
+
+const FoldersRouter = HttpRouter.empty.pipe(
+  HttpRouter.get("/api/folders", adapt(listFolders)),
+  HttpRouter.post("/api/folders", adapt(createFolder)),
+  HttpRouter.get("/api/folders/tree", adapt(getFolderTree)),
+  HttpRouter.get(
+    "/api/folders/:folderId",
+    adaptWithParams(["folderId"], getFolder),
+  ),
+  HttpRouter.patch(
+    "/api/folders/:folderId",
+    adaptWithParams(["folderId"], updateFolder),
+  ),
+  HttpRouter.del(
+    "/api/folders/:folderId",
+    adaptWithParams(["folderId"], deleteFolder),
+  ),
+  HttpRouter.get(
+    "/api/folders/:folderId/breadcrumb",
+    adaptWithParams(["folderId"], getFolderBreadcrumb),
+  ),
+  HttpRouter.post(
+    "/api/folders/:folderId/move",
+    adaptWithParams(["folderId"], moveFolder),
+  ),
 );
 
 const AnnotationsRouter = HttpRouter.empty.pipe(
@@ -169,6 +220,7 @@ export const ApiRouter = HttpRouter.concatAll(
   AuthRouter,
   SystemRouter,
   BooksRouter,
+  FoldersRouter,
   AnnotationsRouter,
   AiRouter,
 );
