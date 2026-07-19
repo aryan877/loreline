@@ -1,6 +1,7 @@
 "use client";
 
-import { LoaderCircle, RefreshCw } from "lucide-react";
+import { LoaderCircle, MousePointer2, RefreshCw } from "lucide-react";
+import { useReducedMotion } from "motion/react";
 import {
   type ComponentProps,
   useCallback,
@@ -24,8 +25,16 @@ import type {
   VoiceState,
 } from "@loreline/contracts/reader";
 import { Button } from "@/components/ui/button";
-import { ReadingAura, type ReaderAuraMode } from "./reading-aura";
-import { findMatchingTextRunRange, sentenceTextRanges } from "@/lib/pdf-text";
+import {
+  ReadingAura,
+  type ReaderAuraMode,
+  type ReaderInspectionTarget,
+} from "./reading-aura";
+import {
+  findMatchingTextRange,
+  normalizePdfText,
+  sentenceTextRanges,
+} from "@/lib/pdf-text";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -207,6 +216,7 @@ type SentenceBoundary = {
 
 type TextLayerModel = {
   page: number;
+  fullText: string;
   entries: TextSpanEntry[];
   entryBySpan: WeakMap<HTMLElement, TextSpanEntry>;
   sentences: SentenceBoundary[];
@@ -256,6 +266,7 @@ function buildTextLayerModel(
   if (!entries.length || !fullText.trim()) return null;
   return {
     page,
+    fullText,
     entries,
     entryBySpan,
     sentences: sentenceBoundaries(fullText, page),
@@ -428,13 +439,24 @@ function HighlightLayer({
   selection: ReaderSelection | null;
   activeFocus: ReaderFocus | null;
 }) {
+  const foregroundPassages = new Set(
+    [selection?.text, activeFocus?.text]
+      .filter((text): text is string => Boolean(text))
+      .map(normalizePdfText),
+  );
+  const backgroundHighlights = highlights.filter(
+    (highlight) =>
+      highlight.id !== activeFocus?.id &&
+      !foregroundPassages.has(normalizePdfText(highlight.text)),
+  );
+
   return (
     <div className="pointer-events-none absolute inset-0 z-10" aria-hidden>
-      {highlights.flatMap((highlight) =>
+      {backgroundHighlights.flatMap((highlight) =>
         highlight.rects.map((rect, index) => (
           <span
             key={`${highlight.id}-${index}`}
-            className="absolute rounded-[0.16rem] bg-reader-highlight/65 mix-blend-multiply"
+            className="absolute rounded-[0.16rem] bg-reader-highlight/55 mix-blend-multiply"
             style={{
               left: `${rect.x * 100}%`,
               top: `${rect.y * 100}%`,
@@ -447,7 +469,7 @@ function HighlightLayer({
       {selection?.rects.map((rect, index) => (
         <span
           key={`current-selection-${index}`}
-          className="absolute rounded-[0.16rem] bg-reader-highlight opacity-[0.38]"
+          className="absolute rounded-[0.16rem] bg-reader-highlight/45 mix-blend-multiply"
           style={{
             left: `${rect.x * 100}%`,
             top: `${rect.y * 100}%`,
@@ -459,7 +481,8 @@ function HighlightLayer({
       {activeFocus?.rects.map((rect, index) => (
         <span
           key={`${activeFocus.id}-${index}`}
-          className="absolute animate-pulse rounded-[0.16rem] bg-coral/30 ring-1 ring-coral/55 mix-blend-multiply"
+          data-reader-focus={index === 0 ? "true" : undefined}
+          className="pdf-reader-focus absolute rounded-[0.16rem] mix-blend-multiply"
           style={{
             left: `${rect.x * 100}%`,
             top: `${rect.y * 100}%`,
@@ -491,6 +514,7 @@ export default function PdfReader({
 }: PdfReaderProps) {
   const pageRef = useRef<HTMLDivElement>(null);
   const zoomSnapshotRef = useRef<HTMLCanvasElement>(null);
+  const pointerVisualRef = useRef<HTMLSpanElement>(null);
   const snapshotVisibleRef = useRef(false);
   const renderedPageRef = useRef<number | null>(null);
   const livePointerRef = useRef<PointerContext>(null);
@@ -498,6 +522,8 @@ export default function PdfReader({
   const hoveredSentenceKeyRef = useRef<string | null>(null);
   const nativeSelectionActiveRef = useRef(false);
   const selectionFrameRef = useRef<number | null>(null);
+  const inspectionTimeoutRef = useRef<number | null>(null);
+  const reduceMotion = useReducedMotion() ?? false;
   const [attempt, setAttempt] = useState(0);
   const [renderZoom, setRenderZoom] = useState(zoom);
   const [snapshotVisible, setSnapshotVisible] = useState(false);
@@ -505,6 +531,8 @@ export default function PdfReader({
     null,
   );
   const [selectionGestureActive, setSelectionGestureActive] = useState(false);
+  const [inspectionTarget, setInspectionTarget] =
+    useState<ReaderInspectionTarget | null>(null);
   const [failedPage, setFailedPage] = useState<{
     fileUrl: string;
     page: number;
@@ -538,9 +566,7 @@ export default function PdfReader({
   const renderHeight = Math.max(1, Math.floor(renderWidth / aspectRatio));
   const renderScale = targetWidth / renderWidth;
   const auraMode: ReaderAuraMode =
-    voiceState === "listening" ||
-    voiceState === "inspecting" ||
-    voiceState === "speaking"
+    voiceState === "inspecting" || voiceState === "speaking"
       ? voiceState
       : "idle";
 
@@ -551,24 +577,33 @@ export default function PdfReader({
 
   const locatePassage = useCallback((passage: string) => {
     const pageNode = pageRef.current;
-    if (!pageNode) return [];
-    const spans = Array.from(
-      pageNode.querySelectorAll<HTMLElement>(
-        ".react-pdf__Page__textContent span",
+    const model = textLayerModelRef.current;
+    if (!pageNode || !model) return [];
+    const match = findMatchingTextRange(model.fullText, passage);
+    if (!match) return [];
+    const startEntry = entryAtOffset(model.entries, match.start);
+    const endEntry = entryAtOffset(
+      model.entries,
+      Math.max(match.start, match.end - 1),
+    );
+    if (!startEntry || !endEntry) return [];
+    const range = document.createRange();
+    range.setStart(
+      startEntry.node,
+      Math.max(
+        0,
+        Math.min(startEntry.node.length, match.start - startEntry.start),
       ),
     );
-    const match = findMatchingTextRunRange(
-      spans.map((span) => span.textContent ?? ""),
-      passage,
+    range.setEnd(
+      endEntry.node,
+      Math.max(
+        0,
+        Math.min(endEntry.node.length, match.end - endEntry.start),
+      ),
     );
-    if (!match) return [];
     const pageRect = pageNode.getBoundingClientRect();
-    return normalizedRects(
-      spans
-        .slice(match.start, match.end + 1)
-        .map((span) => span.getBoundingClientRect()),
-      pageRect,
-    );
+    return normalizedRects(Array.from(range.getClientRects()), pageRect);
   }, []);
 
   useEffect(() => {
@@ -579,6 +614,43 @@ export default function PdfReader({
     );
     return () => window.cancelAnimationFrame(frame);
   }, [focusRequest, locatePassage, onFocusResolved, page, textLayerPage]);
+
+  useEffect(() => {
+    if (!activeFocus || activeFocus.page !== page) return;
+    const frame = window.requestAnimationFrame(() => {
+      pageRef.current
+        ?.querySelector<HTMLElement>('[data-reader-focus="true"]')
+        ?.scrollIntoView({
+          behavior: reduceMotion ? "auto" : "smooth",
+          block: "center",
+          inline: "nearest",
+        });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeFocus, page, reduceMotion]);
+
+  const showInspectionTarget = useCallback((pointer: PointerContext) => {
+    if (inspectionTimeoutRef.current !== null)
+      window.clearTimeout(inspectionTimeoutRef.current);
+    setInspectionTarget({
+      id: crypto.randomUUID(),
+      x: pointer?.x ?? 0.5,
+      y: pointer?.y ?? 0.5,
+      label: pointer ? "Looking here" : "Reading this page",
+    });
+    inspectionTimeoutRef.current = window.setTimeout(() => {
+      setInspectionTarget(null);
+      inspectionTimeoutRef.current = null;
+    }, 2_400);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (inspectionTimeoutRef.current !== null)
+        window.clearTimeout(inspectionTimeoutRef.current);
+    },
+    [],
+  );
 
   const loadError = useCallback(() => {
     setFailedPage({ fileUrl, page });
@@ -605,12 +677,14 @@ export default function PdfReader({
           canvas,
           markPointer ? pointer : null,
         );
-        return dataUrl ? { dataUrl, page, pointer } : null;
+        if (!dataUrl) return null;
+        if (markPointer) showInspectionTarget(pointer);
+        return { dataUrl, page, pointer };
       } catch {
         return null;
       }
     },
-    [page],
+    [page, showInspectionTarget],
   );
 
   useEffect(() => {
@@ -625,6 +699,7 @@ export default function PdfReader({
     const frame = window.requestAnimationFrame(() => {
       setLiveSelection(null);
       setSelectionGestureActive(false);
+      setInspectionTarget(null);
       hideZoomSnapshot();
     });
     return () => window.cancelAnimationFrame(frame);
@@ -791,6 +866,10 @@ export default function PdfReader({
         y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height)),
         text: hit?.selection.text.slice(0, 320) || undefined,
       };
+      if (pointerVisualRef.current) {
+        pointerVisualRef.current.style.opacity = "1";
+        pointerVisualRef.current.style.transform = `translate3d(${clientX - rect.left}px, ${clientY - rect.top}px, 0)`;
+      }
 
       if (nativeSelectionActiveRef.current) return;
       if (hit?.key === hoveredSentenceKeyRef.current) return;
@@ -832,7 +911,7 @@ export default function PdfReader({
     <div
       ref={pageRef}
       style={{ width: targetWidth, height: targetHeight }}
-      className="relative mx-auto w-fit cursor-text select-text overflow-hidden bg-card shadow-float"
+      className="pdf-reader-surface relative mx-auto w-fit cursor-none select-text overflow-hidden bg-card shadow-float"
       onMouseMove={(event) =>
         updatePointerAtPoint(event.clientX, event.clientY)
       }
@@ -844,6 +923,8 @@ export default function PdfReader({
         onSelectionChange(null);
       }}
       onMouseLeave={() => {
+        if (pointerVisualRef.current)
+          pointerVisualRef.current.style.opacity = "0";
         livePointerRef.current = null;
         hoveredSentenceKeyRef.current = null;
         onPointerChange(null);
@@ -894,12 +975,19 @@ export default function PdfReader({
         aria-hidden="true"
         className={`pointer-events-none absolute inset-0 z-[3] size-full transition-opacity duration-100 ${snapshotVisible ? "opacity-100" : "opacity-0"}`}
       />
-      <ReadingAura mode={auraMode} />
+      <ReadingAura mode={auraMode} inspectionTarget={inspectionTarget} />
       <HighlightLayer
         highlights={highlights}
         selection={selectionGestureActive ? liveSelection : selection}
         activeFocus={activeFocus}
       />
+      <span
+        ref={pointerVisualRef}
+        aria-hidden="true"
+        className="pointer-events-none absolute left-0 top-0 z-20 opacity-0 transition-opacity duration-100"
+      >
+        <MousePointer2 className="size-5 fill-gold text-foreground drop-shadow-md" />
+      </span>
     </div>
   );
 }

@@ -30,12 +30,71 @@ import type {
 
 const REALTIME_COMPACTION_RATIO = 0.95;
 
+type VoiceActivity = {
+  id: string;
+  action: string;
+  label: string;
+  status: "running" | "success" | "failed";
+};
+
+const voiceToolActivity: Record<
+  string,
+  { running: string; success: string; failed: string }
+> = {
+  inspect_page: {
+    running: "Sharing the page with Loreline…",
+    success: "Page shared with Loreline",
+    failed: "Page inspection failed",
+  },
+  search_book: {
+    running: "Searching this book…",
+    success: "Book search complete",
+    failed: "Book search failed",
+  },
+  focus_passage: {
+    running: "Finding that passage…",
+    success: "Passage focused on the page",
+    failed: "Passage could not be located",
+  },
+  turn_page: {
+    running: "Turning the page…",
+    success: "Page changed",
+    failed: "Page could not be changed",
+  },
+  save_highlight_note: {
+    running: "Saving the passage…",
+    success: "Passage and note saved",
+    failed: "Passage note was not saved",
+  },
+  place_note: {
+    running: "Pinning a thought…",
+    success: "Thought pinned to the board",
+    failed: "Thought could not be pinned",
+  },
+  place_visual: {
+    running: "Creating a visual…",
+    success: "Visual added to the board",
+    failed: "Visual could not be created",
+  },
+};
+
+function voiceToolFailed(result: string) {
+  return /could not|temporarily unavailable|not ready|no note was saved|is unavailable/i.test(
+    result,
+  );
+}
+
 const realtimeUsageEventSchema = z.object({
   type: z.literal("response.done"),
   response: z.object({
     usage: z.object({ input_tokens: z.number().int().nonnegative() }).nullish(),
   }),
 });
+
+const realtimeSpeechEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("input_audio_buffer.speech_started") }),
+  z.object({ type: z.literal("input_audio_buffer.speech_stopped") }),
+]);
 
 async function searchBookRequest(bookId: string, query: string) {
   return apiJson<SearchBookResponse>("/api/search", {
@@ -121,12 +180,22 @@ function pageInstructions(
   memory: RealtimeMemory | null,
 ) {
   return [
-    "You are Loreline, a calm, perceptive realtime reading companion.",
-    "The live page is primary truth. Start with extracted visible text and the reader's selected text. No page image is sent automatically. Call inspect_page when the reader asks about a diagram, picture, visual layout, or refers to something with words like this, here, or under my cursor. Every requested inspection attaches the entire rendered page and visibly marks the live cursor when it is on the PDF; pointer scope also returns any extracted text under that point.",
-    "Do not call inspect_page merely because the page or pointer changed, and do not claim to see page pixels until the tool confirms that it attached an image. Only call search_book when the question needs information outside this page or the visible context is genuinely insufficient.",
-    "Before quoting, explaining, or narrating a specific passage, call focus_passage with the exact words and page so the reader can see what you are discussing. Use save_highlight_note when the reader asks to keep a note attached to a passage. Use place_note only for a temporary freeform sideboard artifact. Use place_visual whenever an image, scene, analogy, map, or diagram would materially improve understanding.",
-    "Use voice for conversation and spoken navigation. Do not begin continuous narration or turn pages automatically. Obey explicit spoken requests to move to the next or previous PDF page.",
-    `Book: “${context.title}”. Current page: ${context.page}.`,
+    "# Role and Objective",
+    "You are Loreline, a calm, perceptive realtime reading companion. Help the reader understand the live book while keeping the words you discuss visibly anchored on the page.",
+    "# Tools",
+    "Use only the tools currently provided. The reader-facing page tools are read-only and low risk: call them proactively when their conditions are met without asking for confirmation. Never pretend a tool ran. Only say an action succeeded after its result confirms success.",
+    "## focus_passage — PROACTIVE TEACHING ANCHOR",
+    "Before speaking any explanation, quotation, interpretation, or narration of visible text, first call focus_passage with the correct page and one short contiguous verbatim quote of roughly 8–30 words. Call it before the spoken explanation so the reader can see the exact words while listening. If no match is found, retry once with a shorter exact quote copied from the live visible text. If that also fails, briefly say you could not place the focus; never silently continue as if it worked.",
+    "## inspect_page — PROACTIVE VISUAL LOOK",
+    "No page image is sent automatically. Call inspect_page when the reader asks about a picture, diagram, visual layout, or refers to this, here, or under my cursor. Use pointer scope for a local reference and page scope for the overall page. Wait for the result before describing pixels. Do not call it merely because the page or pointer moved.",
+    "## Other tools",
+    "Call search_book only when the live page, selection, and an on-demand page inspection are genuinely insufficient. Use save_highlight_note for a persistent note linked to PDF text. Use place_note only for a temporary sideboard thought. Use place_visual when an image, scene, analogy, map, or diagram would materially improve understanding. Use turn_page only after an explicit spoken navigation request.",
+    "# Tool Failures",
+    "If a tool fails, explain the failure briefly in reader-friendly language. Retry focus_passage once with a shorter exact quote. Do not repeat any other failed call with identical arguments, expose raw errors, or claim completion.",
+    "# Conversation Flow",
+    "Speak conversationally and compactly. Do not begin continuous narration or turn pages automatically. When teaching from the page, the sequence is: focus the exact passage, wait for success, then explain it aloud.",
+    "# Live Context",
+    `Book: “${context.title}”. Current page: ${context.page}. The live page is primary truth.`,
     context.selectedText ? `Selected text: “${context.selectedText}”` : "",
     context.visibleText
       ? `Visible page text:\n${context.visibleText.slice(0, 12000)}`
@@ -154,7 +223,9 @@ export function useLorelineVoice(
 ) {
   const queryClient = useQueryClient();
   const [state, setState] = useState<VoiceState>("idle");
+  const [activity, setActivity] = useState<VoiceActivity | null>(null);
   const [error, setError] = useState("");
+  const stateRef = useRef<VoiceState>("idle");
   const sessionRef = useRef<RealtimeSession | null>(null);
   const connectionRef = useRef<Promise<RealtimeSession | null> | null>(null);
   const connectionEpochRef = useRef(0);
@@ -163,6 +234,27 @@ export function useLorelineVoice(
   const controlsRef = useRef(readerControls);
   const memoryRef = useRef<RealtimeMemory | null>(null);
   const compactingRef = useRef(false);
+  const activityTimeoutRef = useRef<number | null>(null);
+  const toolStartedAtRef = useRef(new Map<string, number>());
+  const updateState = useCallback((next: VoiceState) => {
+    stateRef.current = next;
+    setState(next);
+  }, []);
+  const publishActivity = useCallback(
+    (next: VoiceActivity | null, clearAfter = 0) => {
+      if (activityTimeoutRef.current !== null) {
+        window.clearTimeout(activityTimeoutRef.current);
+        activityTimeoutRef.current = null;
+      }
+      setActivity(next);
+      if (next && clearAfter > 0)
+        activityTimeoutRef.current = window.setTimeout(() => {
+          setActivity(null);
+          activityTimeoutRef.current = null;
+        }, clearAfter);
+    },
+    [],
+  );
   const { mutateAsync: createVisual } = useMutation({
     mutationFn: createIllustration,
   });
@@ -187,7 +279,7 @@ export function useLorelineVoice(
         scope: z.enum(["pointer", "page"]),
       }),
       execute: async ({ scope }) => {
-        setState("inspecting");
+        updateState("inspecting");
         try {
           const current = contextRef.current;
           const session = sessionRef.current;
@@ -218,7 +310,7 @@ export function useLorelineVoice(
           }
         } finally {
           if (sessionRef.current?.transport.status === "connected")
-            setState("listening");
+            updateState("thinking");
         }
       },
     });
@@ -310,7 +402,7 @@ export function useLorelineVoice(
     const focusPassage = tool({
       name: "focus_passage",
       description:
-        "Focus and visibly highlight exact words on a PDF page before narrating, quoting, or explaining them.",
+        "Focus and visibly highlight exact words on a PDF page before narrating, quoting, or explaining them. Pass a short contiguous verbatim quote from the visible page, ideally 8–30 words. If it is not found, retry once with a shorter exact quote.",
       parameters: z.object({
         page: z.number().int().positive(),
         text: z.string().trim().min(2).max(2000),
@@ -379,7 +471,7 @@ export function useLorelineVoice(
         placeVisual,
       ],
     });
-  }, [createVisual, queryClient]);
+  }, [createVisual, queryClient, updateState]);
 
   const compactSession = useCallback(
     async (session: RealtimeSession) => {
@@ -416,7 +508,7 @@ export function useLorelineVoice(
 
     const connectionEpoch = ++connectionEpochRef.current;
     setError("");
-    setState("connecting");
+    updateState("connecting");
     const connection = (async () => {
       let session: RealtimeSession | null = null;
       try {
@@ -427,6 +519,7 @@ export function useLorelineVoice(
           transport: "webrtc",
           workflowName: "Loreline reading companion",
           config: {
+            reasoning: { effort: "low" },
             providerData: {
               truncation: {
                 type: "retention_ratio",
@@ -439,10 +532,80 @@ export function useLorelineVoice(
           },
         });
         const activeSession = session;
-        activeSession.on("audio_start", () => setState("speaking"));
-        activeSession.on("audio_stopped", () => setState("listening"));
-        activeSession.on("audio_interrupted", () => setState("listening"));
+        activeSession.on("agent_start", () => updateState("thinking"));
+        activeSession.on(
+          "agent_tool_start",
+          (_runContext, _agent, activeTool, details) => {
+            const action = activeTool.name;
+            const callId =
+              details.toolCall.type === "function_call"
+                ? details.toolCall.callId
+                : (details.toolCall.id ?? crypto.randomUUID());
+            const copy = voiceToolActivity[action] ?? {
+              running: "Working on that…",
+              success: "Action complete",
+              failed: "Action failed",
+            };
+            toolStartedAtRef.current.set(callId, performance.now());
+            publishActivity({
+              id: callId,
+              action,
+              label: copy.running,
+              status: "running",
+            });
+            updateState(action === "inspect_page" ? "inspecting" : "thinking");
+          },
+        );
+        activeSession.on(
+          "agent_tool_end",
+          (_runContext, _agent, activeTool, result, details) => {
+            const action = activeTool.name;
+            const callId =
+              details.toolCall.type === "function_call"
+                ? details.toolCall.callId
+                : (details.toolCall.id ?? action);
+            const copy = voiceToolActivity[action] ?? {
+              running: "Working on that…",
+              success: "Action complete",
+              failed: "Action failed",
+            };
+            const failed = voiceToolFailed(result);
+            const startedAt = toolStartedAtRef.current.get(callId);
+            if (startedAt !== undefined) {
+              performance.measure(`loreline:${action}`, {
+                start: startedAt,
+                end: performance.now(),
+                detail: { action, failed, page: contextRef.current.page },
+              });
+              toolStartedAtRef.current.delete(callId);
+            }
+            publishActivity(
+              {
+                id: callId,
+                action,
+                label: failed ? copy.failed : copy.success,
+                status: failed ? "failed" : "success",
+              },
+              3_200,
+            );
+            if (stateRef.current !== "speaking") updateState("thinking");
+          },
+        );
+        activeSession.on("agent_end", () => {
+          if (stateRef.current !== "speaking") updateState("listening");
+        });
+        activeSession.on("audio_start", () => updateState("speaking"));
+        activeSession.on("audio_stopped", () => updateState("listening"));
+        activeSession.on("audio_interrupted", () => updateState("listening"));
         activeSession.on("transport_event", (event) => {
+          const speechEvent = realtimeSpeechEventSchema.safeParse(event);
+          if (speechEvent.success) {
+            updateState(
+              speechEvent.data.type === "input_audio_buffer.speech_started"
+                ? "listening"
+                : "thinking",
+            );
+          }
           const parsed = realtimeUsageEventSchema.safeParse(event);
           const inputTokens = parsed.success
             ? (parsed.data.response.usage?.input_tokens ?? 0)
@@ -462,7 +625,7 @@ export function useLorelineVoice(
           );
           setError(connectionError.message);
           showErrorToast(connectionError);
-          setState("error");
+          updateState("error");
         });
         await activeSession.connect({ apiKey: token.clientSecret });
         if (connectionEpochRef.current !== connectionEpoch) {
@@ -471,7 +634,7 @@ export function useLorelineVoice(
         }
         sessionRef.current = activeSession;
         setError("");
-        setState("listening");
+        updateState("listening");
         return activeSession;
       } catch (cause) {
         session?.close();
@@ -479,7 +642,7 @@ export function useLorelineVoice(
         setError(toUserMessage(cause, "Loreline couldn’t connect voice."));
         if (!(cause instanceof UserFacingError))
           showErrorToast(cause, "Loreline couldn’t connect voice.");
-        setState("error");
+        updateState("error");
         return null;
       }
     })();
@@ -488,7 +651,13 @@ export function useLorelineVoice(
       if (connectionRef.current === connection) connectionRef.current = null;
     });
     return connection;
-  }, [buildAgent, compactSession, getRealtimeToken]);
+  }, [
+    buildAgent,
+    compactSession,
+    getRealtimeToken,
+    publishActivity,
+    updateState,
+  ]);
 
   const disconnect = useCallback(() => {
     connectionEpochRef.current += 1;
@@ -497,8 +666,10 @@ export function useLorelineVoice(
     sessionRef.current = null;
     session?.close();
     setError("");
-    setState("idle");
-  }, []);
+    publishActivity(null);
+    toolStartedAtRef.current.clear();
+    updateState("idle");
+  }, [publishActivity, updateState]);
 
   useEffect(() => {
     const session = sessionRef.current;
@@ -527,12 +698,15 @@ export function useLorelineVoice(
       const session = sessionRef.current;
       sessionRef.current = null;
       session?.close();
+      if (activityTimeoutRef.current !== null)
+        window.clearTimeout(activityTimeoutRef.current);
     },
     [],
   );
 
   return {
     state,
+    activity,
     error,
     connected: state !== "idle" && state !== "error",
     connect,

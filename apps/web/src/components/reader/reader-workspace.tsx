@@ -6,7 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   Bookmark,
   BookmarkCheck,
@@ -113,19 +113,70 @@ async function getBookmarks(bookId: string) {
   return data.bookmarks;
 }
 
+const voiceOrbAppearance: Record<
+  VoiceState,
+  { surface: string; glow: string }
+> = {
+  idle: {
+    surface: "bg-primary text-primary-foreground",
+    glow: "bg-primary",
+  },
+  connecting: {
+    surface: "bg-muted text-muted-foreground",
+    glow: "bg-muted-foreground",
+  },
+  listening: {
+    surface: "bg-sage-soft text-sage",
+    glow: "bg-sage",
+  },
+  thinking: {
+    surface: "bg-gold text-foreground",
+    glow: "bg-gold",
+  },
+  inspecting: {
+    surface: "bg-primary text-primary-foreground",
+    glow: "bg-primary",
+  },
+  speaking: {
+    surface: "bg-sky text-primary-foreground",
+    glow: "bg-sky",
+  },
+  error: {
+    surface: "bg-destructive text-primary-foreground",
+    glow: "bg-destructive",
+  },
+};
+
 function VoiceOrb({ state }: { state: VoiceState }) {
+  const reduceMotion = useReducedMotion() ?? false;
   const active =
-    state === "listening" || state === "inspecting" || state === "speaking";
+    state === "listening" ||
+    state === "thinking" ||
+    state === "inspecting" ||
+    state === "speaking";
+  const appearance = voiceOrbAppearance[state];
   return (
-    <span className="relative grid size-10 place-items-center rounded-full bg-coral text-primary-foreground">
+    <span
+      className={cn(
+        "relative isolate grid size-10 place-items-center rounded-full",
+        appearance.surface,
+      )}
+    >
       {active && (
         <motion.span
-          className="absolute inset-0 rounded-full border border-coral"
-          animate={{ scale: [1, 1.55], opacity: [0.7, 0] }}
-          transition={{ duration: 1.6, repeat: Infinity }}
+          className={cn(
+            "absolute -inset-1 -z-10 rounded-full blur-md",
+            appearance.glow,
+          )}
+          animate={
+            reduceMotion
+              ? { opacity: 0.24 }
+              : { scale: [0.96, 1.08, 0.96], opacity: [0.18, 0.42, 0.18] }
+          }
+          transition={{ duration: 1.4, repeat: reduceMotion ? 0 : Infinity }}
         />
       )}
-      {state === "connecting" ? (
+      {state === "connecting" || state === "thinking" ? (
         <LoaderCircle className="size-4 animate-spin" />
       ) : state === "inspecting" ? (
         <Sparkles className="size-4" />
@@ -393,13 +444,17 @@ function Sideboard({
   const voiceLabel =
     voice.state === "connecting"
       ? "Connecting…"
-      : voice.state === "inspecting"
-        ? "Looking at the page…"
-        : voice.state === "speaking"
-          ? "Loreline is speaking"
-          : voice.state === "listening"
-            ? "Listening"
-            : "Start voice";
+      : voice.state === "thinking"
+        ? "Thinking…"
+        : voice.state === "inspecting"
+          ? "Looking at the page…"
+          : voice.state === "speaking"
+            ? "Loreline is speaking"
+            : voice.state === "listening"
+              ? "Listening"
+              : voice.state === "error"
+                ? "Reconnect voice"
+                : "Start voice";
   const orderedHighlights = useMemo(
     () =>
       [...highlights].sort((left, right) => {
@@ -697,26 +752,38 @@ function Sideboard({
           className={cn(
             "flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             voice.connected
-              ? "bg-coral-soft/50"
+              ? "bg-muted/45"
               : "hover:bg-muted/55",
           )}
         >
           <VoiceOrb state={voice.state} />
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-semibold">{voiceLabel}</span>
-            <span className="block truncate text-[0.66rem] text-muted-foreground">
-              {voice.connected
-                ? "Tap to end the voice session"
-                : "Ask, navigate, draw, or save notes"}
+            <span
+              aria-live="polite"
+              className={cn(
+                "block truncate text-[0.66rem] text-muted-foreground",
+                voice.activity?.status === "failed" && "text-destructive",
+              )}
+            >
+              {voice.activity?.label ??
+                (voice.connected
+                  ? "Tap to end the voice session"
+                  : "Ask, navigate, draw, or save notes")}
             </span>
           </span>
-          {voice.connected && (
+          {(voice.state === "listening" || voice.state === "speaking") && (
             <span className="mr-1 flex items-center gap-1" aria-hidden="true">
               {[0, 1, 2].map((bar) => (
                 <motion.span
                   key={bar}
-                  className="w-0.5 rounded-full bg-coral"
-                  animate={{ height: [5, 14, 7] }}
+                  className={cn(
+                    "w-0.5 rounded-full",
+                    voice.state === "speaking" ? "bg-sky" : "bg-sage",
+                  )}
+                  animate={{
+                    height: [5, voice.state === "speaking" ? 14 : 10, 7],
+                  }}
                   transition={{
                     duration: 0.85,
                     delay: bar * 0.12,

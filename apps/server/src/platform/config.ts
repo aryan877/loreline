@@ -34,7 +34,7 @@ export const AppConfigLive = Layer.effect(
         Config.withDefault("deepseek/deepseek-v4-flash"),
       ),
       realtimeModel: yield* Config.string("OPENAI_REALTIME_MODEL").pipe(
-        Config.withDefault("gpt-realtime-2.1-mini"),
+        Config.withDefault("gpt-realtime-2.1"),
       ),
       openRouterImageModel: yield* Config.string("OPENROUTER_IMAGE_MODEL").pipe(
         Config.withDefault("openai/gpt-image-1-mini"),

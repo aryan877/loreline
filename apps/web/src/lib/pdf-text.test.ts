@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { findMatchingTextRunRange, sentenceTextRanges } from "./pdf-text";
+import {
+  findMatchingTextRange,
+  findMatchingTextRunRange,
+  sentenceTextRanges,
+} from "./pdf-text";
 
 describe("sentenceTextRanges", () => {
   it("keeps sentence boundaries across PDF text-run whitespace", () => {
@@ -41,9 +45,31 @@ describe("findMatchingTextRunRange", () => {
     });
   });
 
+  it("finds a unique passage anchor when the request includes commentary", () => {
+    expect(
+      findMatchingTextRunRange(
+        runs,
+        "The author is teaching that the quieter art of noticing what changes inside us.",
+      ),
+    ).toEqual({ start: 1, end: 1 });
+  });
+
   it("returns null when the passage is absent", () => {
     expect(
       findMatchingTextRunRange(runs, "A completely different claim"),
     ).toBeNull();
+  });
+});
+
+describe("findMatchingTextRange", () => {
+  it("returns precise character offsets for a passage anchor", () => {
+    const text =
+      "The first thought ends here. The quieter art of noticing begins now.";
+    const passage = "Loreline explains: the quieter art of noticing.";
+    const match = findMatchingTextRange(text, passage);
+
+    expect(match && text.slice(match.start, match.end)).toBe(
+      "The quieter art of noticing",
+    );
   });
 });

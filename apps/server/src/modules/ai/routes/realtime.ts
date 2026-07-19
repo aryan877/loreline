@@ -41,8 +41,8 @@ export async function POST(request: Request) {
       expiresAt: result.expires_at,
       model:
         result.session.type === "realtime"
-          ? (result.session.model ?? "gpt-realtime-2.1-mini")
-          : "gpt-realtime-2.1-mini",
+          ? (result.session.model ?? "gpt-realtime-2.1")
+          : "gpt-realtime-2.1",
     });
     return Response.json(response);
   } catch (error) {

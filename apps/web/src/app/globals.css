@@ -240,189 +240,132 @@
   }
 }
 
-@keyframes pdf-reading-orbit {
-  0% {
-    transform: rotate(0deg) scale(1.02);
-  }
-  50% {
-    transform: rotate(180deg) scale(1.12);
-  }
-  100% {
-    transform: rotate(360deg) scale(1.02);
-  }
-}
-
-@keyframes pdf-reading-sweep {
-  0% {
-    transform: translate3d(-22%, -38%, 0) rotate(7deg);
-  }
-  100% {
-    transform: translate3d(22%, 38%, 0) rotate(7deg);
-  }
-}
-
-@keyframes pdf-reading-edge {
+@keyframes pdf-speaking-breathe {
   0%,
   100% {
-    opacity: 0.48;
-  }
-  50% {
-    opacity: 0.9;
-  }
-}
-
-@keyframes pdf-listening-breathe {
-  0%,
-  100% {
-    opacity: 0.38;
+    opacity: 0.3;
     transform: scale(0.98);
   }
   50% {
-    opacity: 0.72;
-    transform: scale(1.02);
+    opacity: 0.56;
+    transform: scale(1.025);
   }
 }
 
-@keyframes pdf-inspection-scan {
-  0% {
-    transform: translate3d(0, -72%, 0);
-  }
+@keyframes pdf-focus-breathe {
+  0%,
   100% {
-    transform: translate3d(0, 72%, 0);
+    background-color: color-mix(
+      in oklab,
+      var(--reader-highlight) 48%,
+      transparent
+    );
+    box-shadow: 0 0 0.6rem
+      color-mix(in oklab, var(--reader-highlight) 34%, transparent);
   }
+  50% {
+    background-color: color-mix(
+      in oklab,
+      var(--reader-highlight) 68%,
+      transparent
+    );
+    box-shadow: 0 0 1.15rem
+      color-mix(in oklab, var(--reader-highlight) 58%, transparent);
+  }
+}
+
+.pdf-reader-focus {
+  background-color: color-mix(
+    in oklab,
+    var(--reader-highlight) 58%,
+    transparent
+  );
+  box-shadow: 0 0 0.85rem
+    color-mix(in oklab, var(--reader-highlight) 42%, transparent);
+  animation: pdf-focus-breathe 2.2s ease-in-out infinite;
 }
 
 .pdf-reading-aura {
   pointer-events: none;
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: 15;
   isolation: isolate;
   overflow: hidden;
 }
 
-.pdf-reading-aura__orbit {
+.pdf-reading-aura__speaking-glow {
   position: absolute;
-  inset: -38%;
-  background: conic-gradient(
-    from 20deg at 50% 50%,
-    transparent 0deg 38deg,
-    color-mix(in oklab, var(--sky) 24%, transparent) 74deg,
-    transparent 112deg 148deg,
-    color-mix(in oklab, var(--coral) 25%, transparent) 184deg,
-    transparent 220deg 256deg,
-    color-mix(in oklab, var(--sage) 22%, transparent) 294deg,
-    transparent 330deg 360deg
-  );
-  filter: blur(52px);
-  mix-blend-mode: multiply;
-  opacity: 0.58;
-  will-change: transform;
-  animation: pdf-reading-orbit 13s linear infinite;
-}
-
-.pdf-reading-aura__listening {
-  position: absolute;
-  inset: 1.5%;
-  border-radius: 0.25rem;
+  inset: -12%;
   background:
     radial-gradient(
-      ellipse at 0% 50%,
-      color-mix(in oklab, var(--sage) 25%, transparent),
+      ellipse at 15% 18%,
+      color-mix(in oklab, var(--sky) 24%, transparent),
       transparent 38%
     ),
     radial-gradient(
-      ellipse at 100% 50%,
-      color-mix(in oklab, var(--sky) 20%, transparent),
-      transparent 38%
+      ellipse at 84% 72%,
+      color-mix(in oklab, var(--coral) 22%, transparent),
+      transparent 42%
     );
-  box-shadow:
-    inset 0 0 52px color-mix(in oklab, var(--sage) 14%, transparent),
-    inset 0 0 0 1px color-mix(in oklab, var(--sky) 24%, transparent);
-  will-change: transform, opacity;
-  animation: pdf-listening-breathe 3.6s ease-in-out infinite;
-}
-
-.pdf-reading-aura__inspection {
-  position: absolute;
-  inset: -42% -8%;
-  background: linear-gradient(
-    180deg,
-    transparent 42%,
-    color-mix(in oklab, var(--sky) 17%, transparent) 47%,
-    color-mix(in oklab, var(--coral) 28%, transparent) 50%,
-    color-mix(in oklab, var(--sage) 17%, transparent) 53%,
-    transparent 58%
-  );
-  filter: blur(16px);
+  filter: blur(30px);
   mix-blend-mode: multiply;
-  opacity: 0.78;
+  opacity: 0.44;
   will-change: transform;
-  animation: pdf-inspection-scan 2.4s ease-in-out infinite alternate;
+  animation: pdf-speaking-breathe 4.8s ease-in-out infinite;
 }
 
-.pdf-reading-aura__sweep {
+.pdf-reading-aura__inspection-target {
   position: absolute;
-  inset: -56% -42%;
-  background: linear-gradient(
-    108deg,
-    transparent 38%,
-    color-mix(in oklab, var(--sage) 20%, transparent) 45%,
-    color-mix(in oklab, var(--coral) 27%, transparent) 50%,
-    color-mix(in oklab, var(--sky) 20%, transparent) 55%,
-    transparent 63%
+  display: grid;
+  width: 1px;
+  height: 1px;
+  translate: -50% -50%;
+  place-items: center;
+}
+
+.pdf-reading-aura__inspection-glow {
+  position: absolute;
+  width: 6.5rem;
+  height: 6.5rem;
+  border-radius: 999px;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--coral) 42%, transparent),
+    color-mix(in oklab, var(--coral) 16%, transparent) 32%,
+    transparent 70%
   );
-  filter: blur(24px);
+  filter: blur(7px);
   mix-blend-mode: multiply;
-  opacity: 0.72;
-  will-change: transform;
-  animation: pdf-reading-sweep 5.2s cubic-bezier(0.45, 0, 0.55, 1) infinite
-    alternate;
 }
 
-.pdf-reading-aura__edge {
+.pdf-reading-aura__inspection-dot {
   position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in oklab, var(--sky) 20%, transparent),
-      transparent 12% 88%,
-      color-mix(in oklab, var(--sage) 18%, transparent)
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in oklab, var(--coral) 18%, transparent),
-      transparent 14% 86%,
-      color-mix(in oklab, var(--sky) 16%, transparent)
-    );
-  box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, var(--coral) 34%, transparent),
-    inset 0 0 44px color-mix(in oklab, var(--sky) 16%, transparent);
-  animation: pdf-reading-edge 2.8s ease-in-out infinite;
+  width: 0.58rem;
+  height: 0.58rem;
+  border-radius: 999px;
+  background: var(--coral);
+  box-shadow: 0 0 22px color-mix(in oklab, var(--coral) 72%, transparent);
 }
 
-.pdf-reading-aura[data-reading-aura="listening"] .pdf-reading-aura__edge {
-  opacity: 0.52;
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in oklab, var(--sage) 18%, transparent),
-      transparent 16% 84%,
-      color-mix(in oklab, var(--sky) 16%, transparent)
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in oklab, var(--sky) 12%, transparent),
-      transparent 18% 82%,
-      color-mix(in oklab, var(--sage) 14%, transparent)
-    );
-}
-
-.pdf-reading-aura[data-reading-aura="inspecting"] .pdf-reading-aura__edge {
-  box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, var(--sky) 38%, transparent),
-    inset 0 0 58px color-mix(in oklab, var(--coral) 16%, transparent);
+.pdf-reading-aura__inspection-label {
+  position: absolute;
+  top: 0.9rem;
+  left: 50%;
+  translate: -50% 0;
+  width: max-content;
+  max-width: 11rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--foreground) 88%, transparent);
+  box-shadow: var(--shadow-soft);
+  color: var(--background);
+  font-family: var(--font-loreline-sans);
+  font-size: 0.64rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  padding: 0.42rem 0.62rem;
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -443,6 +386,10 @@
 }
 .react-pdf__Page__textContent {
   user-select: text;
+}
+.pdf-reader-surface,
+.pdf-reader-surface .react-pdf__Page__textContent :is(span, br) {
+  cursor: none;
 }
 .react-pdf__Page__textContent :is(span, br)::selection {
   background-color: transparent !important;

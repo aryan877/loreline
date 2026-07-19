@@ -9,13 +9,13 @@ describe("Loreline Realtime contract", () => {
     const create = vi.fn().mockResolvedValue({
       value: "ek_test",
       expires_at: 123,
-      session: { type: "realtime", model: "gpt-realtime-2.1-mini" },
+      session: { type: "realtime", model: "gpt-realtime-2.1" },
     });
     const realtimeClient: RealtimeModelClient = {
       realtime: { clientSecrets: { create } },
     };
     const result = await mintRealtimeClientSecret(realtimeClient, {
-      model: "gpt-realtime-2.1-mini",
+      model: "gpt-realtime-2.1",
       bookTitle: "Deep Work",
     });
     expect(result.value).toBe("ek_test");
