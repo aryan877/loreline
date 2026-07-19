@@ -41,6 +41,11 @@ const voiceToolActivity: Record<
   string,
   { running: string; success: string; failed: string }
 > = {
+  prepare_reader_response: {
+    running: "Preparing the page…",
+    success: "Page context ready",
+    failed: "Page context could not be prepared",
+  },
   inspect_page: {
     running: "Sharing the page with Loreline…",
     success: "Page shared with Loreline",
@@ -95,6 +100,17 @@ const realtimeSpeechEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("input_audio_buffer.speech_started") }),
   z.object({ type: z.literal("input_audio_buffer.speech_stopped") }),
 ]);
+
+const realtimeInputTranscriptSchema = z.object({
+  type: z.literal("conversation.item.input_audio_transcription.completed"),
+  item_id: z.string(),
+});
+
+const realtimeOutputTranscriptDeltaSchema = z.object({
+  type: z.literal("response.output_audio_transcript.delta"),
+  response_id: z.string(),
+  delta: z.string(),
+});
 
 async function searchBookRequest(bookId: string, query: string) {
   return apiJson<SearchBookResponse>("/api/search", {
@@ -184,6 +200,8 @@ function pageInstructions(
     "You are Loreline, a calm, perceptive realtime reading companion. Help the reader understand the live book while keeping the words you discuss visibly anchored on the page.",
     "# Tools",
     "Use only the tools currently provided. The reader-facing page tools are read-only and low risk: call them proactively when their conditions are met without asking for confirmation. Never pretend a tool ran. Only say an action succeeded after its result confirms success.",
+    "## prepare_reader_response — REQUIRED FIRST ACTION",
+    "Every voice turn begins with a forced prepare_reader_response call before audio can be produced. Choose focus whenever the response will explain, quote, interpret, summarize, or narrate visible text. Choose inspect_pointer or inspect_page for a visual question or a response that is not anchored to an exact passage. Every turn must create real visible page feedback.",
     "## focus_passage — PROACTIVE TEACHING ANCHOR",
     "Before speaking any explanation, quotation, interpretation, or narration of visible text, first call focus_passage with the correct page and one short contiguous verbatim quote of roughly 8–30 words. Call it before the spoken explanation so the reader can see the exact words while listening. If no match is found, retry once with a shorter exact quote copied from the live visible text. If that also fails, briefly say you could not place the focus; never silently continue as if it worked.",
     "## inspect_page — PROACTIVE VISUAL LOOK",
@@ -236,6 +254,11 @@ export function useLorelineVoice(
   const compactingRef = useRef(false);
   const activityTimeoutRef = useRef<number | null>(null);
   const toolStartedAtRef = useRef(new Map<string, number>());
+  const processedAudioItemsRef = useRef(new Set<string>());
+  const spokenTranscriptsRef = useRef(new Map<string, string>());
+  const spokenFocusAttemptRef = useRef(new Map<string, number>());
+  const spokenFocusInFlightRef = useRef(new Set<string>());
+  const turnFocusedRef = useRef(false);
   const updateState = useCallback((next: VoiceState) => {
     stateRef.current = next;
     setState(next);
@@ -271,6 +294,79 @@ export function useLorelineVoice(
   }, [context, addBoardItem, readerControls]);
 
   const buildAgent = useCallback(() => {
+    const inspectRenderedPage = async (scope: "pointer" | "page") => {
+      updateState("inspecting");
+      try {
+        const current = contextRef.current;
+        const session = sessionRef.current;
+        if (!session || session.transport.status !== "connected")
+          return `Current page: ${current.page}. A visual snapshot is unavailable because voice is not connected.`;
+
+        const capture = controlsRef.current.capturePageImage({
+          markPointer: true,
+        });
+        if (!capture)
+          return `Current page: ${current.page}. The rendered page image is not ready, so answer from the extracted text or ask the reader to try again.`;
+
+        const pointerSummary = capture.pointer
+          ? `${Math.round(capture.pointer.x * 100)}% from the left and ${Math.round(capture.pointer.y * 100)}% from the top${capture.pointer.text ? `, over “${capture.pointer.text}”` : ""}`
+          : "not currently on the page";
+
+        try {
+          session.addImage(capture.dataUrl, { triggerResponse: false });
+          return scope === "pointer"
+            ? `Attached the compressed full page ${capture.page} with the cursor visibly marked at ${pointerSummary}. Use the annotated image, the extracted pointer text when present, and the live page text together.`
+            : `Attached a compressed full-page image for page ${capture.page}${capture.pointer ? ` with the live cursor visibly marked at ${pointerSummary}` : ", with no cursor currently on the PDF"}. Use that image and the live page text to answer.`;
+        } catch (cause) {
+          console.error(
+            "Loreline could not attach the requested page image",
+            cause,
+          );
+          return `Current page: ${capture.page}. The pointer is ${pointerSummary}. The visual snapshot could not be attached, so answer from extracted text or ask the reader to try again.`;
+        }
+      } finally {
+        if (sessionRef.current?.transport.status === "connected")
+          updateState("thinking");
+      }
+    };
+
+    const prepareReaderResponse = tool({
+      name: "prepare_reader_response",
+      description:
+        "Mandatory first action for every voice turn. Use focus before teaching from visible text, inspect_pointer for this/here/cursor references, and inspect_page for pictures, page layout, or a response without an exact passage. A real visible page action is required before speech.",
+      parameters: z.object({
+        mode: z.enum(["focus", "inspect_pointer", "inspect_page"]),
+        page: z.number().int().positive(),
+        text: z.string().trim().max(2000).optional(),
+      }),
+      execute: async ({ mode, page, text }) => {
+        if (mode === "inspect_pointer") return inspectRenderedPage("pointer");
+        if (mode === "inspect_page") return inspectRenderedPage("page");
+
+        const current = contextRef.current;
+        const passage =
+          text?.trim() || current.selectedText || current.pointer?.text || "";
+        if (!passage) {
+          const inspection = await inspectRenderedPage(
+            current.pointer ? "pointer" : "page",
+          );
+          return `The page focus could not be prepared because no exact passage was provided for page ${page}. A visual inspection was attached instead: ${inspection}`;
+        }
+        const located = await controlsRef.current.focusPassage({
+          page,
+          text: passage,
+        });
+        if (located) {
+          turnFocusedRef.current = true;
+          return `Focused the teaching passage on page ${page}. The spoken explanation may now begin.`;
+        }
+        const inspection = await inspectRenderedPage(
+          current.pointer ? "pointer" : "page",
+        );
+        return `The exact teaching passage could not be located on page ${page}. A visual inspection was attached as fallback: ${inspection} Retry focus_passage once with a shorter verbatim quote before teaching.`;
+      },
+    });
+
     const inspectPage = tool({
       name: "inspect_page",
       description:
@@ -278,41 +374,7 @@ export function useLorelineVoice(
       parameters: z.object({
         scope: z.enum(["pointer", "page"]),
       }),
-      execute: async ({ scope }) => {
-        updateState("inspecting");
-        try {
-          const current = contextRef.current;
-          const session = sessionRef.current;
-          if (!session || session.transport.status !== "connected")
-            return `Current page: ${current.page}. A visual snapshot is unavailable because voice is not connected.`;
-
-          const capture = controlsRef.current.capturePageImage({
-            markPointer: true,
-          });
-          if (!capture)
-            return `Current page: ${current.page}. The rendered page image is not ready, so answer from the extracted text or ask the reader to try again.`;
-
-          const pointerSummary = capture.pointer
-            ? `${Math.round(capture.pointer.x * 100)}% from the left and ${Math.round(capture.pointer.y * 100)}% from the top${capture.pointer.text ? `, over “${capture.pointer.text}”` : ""}`
-            : "not currently on the page";
-
-          try {
-            session.addImage(capture.dataUrl, { triggerResponse: false });
-            return scope === "pointer"
-              ? `Attached the compressed full page ${capture.page} with the cursor visibly marked at ${pointerSummary}. Use the annotated image, the extracted pointer text when present, and the live page text together.`
-              : `Attached a compressed full-page image for page ${capture.page}${capture.pointer ? ` with the live cursor visibly marked at ${pointerSummary}` : ", with no cursor currently on the PDF"}. Use that image and the live page text to answer.`;
-          } catch (cause) {
-            console.error(
-              "Loreline could not attach the requested page image",
-              cause,
-            );
-            return `Current page: ${capture.page}. The pointer is ${pointerSummary}. The visual snapshot could not be attached, so answer from extracted text or ask the reader to try again.`;
-          }
-        } finally {
-          if (sessionRef.current?.transport.status === "connected")
-            updateState("thinking");
-        }
-      },
+      execute: async ({ scope }) => inspectRenderedPage(scope),
     });
 
     const searchBook = tool({
@@ -409,6 +471,7 @@ export function useLorelineVoice(
       }),
       execute: async ({ page, text }) => {
         const located = await controlsRef.current.focusPassage({ page, text });
+        if (located) turnFocusedRef.current = true;
         return located
           ? `Focused the requested passage on page ${page}.`
           : `The exact passage could not be located on page ${page}.`;
@@ -462,6 +525,7 @@ export function useLorelineVoice(
       name: "Loreline",
       instructions: pageInstructions(contextRef.current, memoryRef.current),
       tools: [
+        prepareReaderResponse,
         inspectPage,
         searchBook,
         focusPassage,
@@ -520,6 +584,16 @@ export function useLorelineVoice(
           workflowName: "Loreline reading companion",
           config: {
             reasoning: { effort: "low" },
+            audio: {
+              input: {
+                turnDetection: {
+                  type: "semantic_vad",
+                  eagerness: "auto",
+                  createResponse: false,
+                  interruptResponse: true,
+                },
+              },
+            },
             providerData: {
               truncation: {
                 type: "retention_ratio",
@@ -532,6 +606,47 @@ export function useLorelineVoice(
           },
         });
         const activeSession = session;
+        const alignSpokenPassage = (responseId: string, delta: string) => {
+          const transcript = `${spokenTranscriptsRef.current.get(responseId) ?? ""}${delta}`;
+          spokenTranscriptsRef.current.set(responseId, transcript);
+          if (turnFocusedRef.current) return;
+          const words = transcript.trim().split(/\s+/).filter(Boolean).length;
+          const lastAttempt = spokenFocusAttemptRef.current.get(responseId) ?? 0;
+          if (
+            words < 6 ||
+            transcript.length - lastAttempt < 48 ||
+            spokenFocusInFlightRef.current.has(responseId)
+          )
+            return;
+
+          spokenFocusAttemptRef.current.set(responseId, transcript.length);
+          spokenFocusInFlightRef.current.add(responseId);
+          const targetPage = contextRef.current.page;
+          void controlsRef.current
+            .focusPassage({ page: targetPage, text: transcript })
+            .then((located) => {
+              if (!located) return;
+              turnFocusedRef.current = true;
+              publishActivity(
+                {
+                  id: `spoken-focus:${responseId}`,
+                  action: "focus_passage",
+                  label: "Following the spoken passage",
+                  status: "success",
+                },
+                3_200,
+              );
+            })
+            .catch((cause) => {
+              console.error(
+                "Loreline could not align its spoken passage to the page",
+                cause,
+              );
+            })
+            .finally(() => {
+              spokenFocusInFlightRef.current.delete(responseId);
+            });
+        };
         activeSession.on("agent_start", () => updateState("thinking"));
         activeSession.on(
           "agent_tool_start",
@@ -600,12 +715,40 @@ export function useLorelineVoice(
         activeSession.on("transport_event", (event) => {
           const speechEvent = realtimeSpeechEventSchema.safeParse(event);
           if (speechEvent.success) {
+            if (
+              speechEvent.data.type === "input_audio_buffer.speech_started"
+            ) {
+              turnFocusedRef.current = false;
+              spokenTranscriptsRef.current.clear();
+              spokenFocusAttemptRef.current.clear();
+              spokenFocusInFlightRef.current.clear();
+            }
             updateState(
               speechEvent.data.type === "input_audio_buffer.speech_started"
                 ? "listening"
                 : "thinking",
             );
           }
+          const inputTranscript = realtimeInputTranscriptSchema.safeParse(event);
+          if (
+            inputTranscript.success &&
+            !processedAudioItemsRef.current.has(inputTranscript.data.item_id)
+          ) {
+            processedAudioItemsRef.current.add(inputTranscript.data.item_id);
+            activeSession.transport.requestResponse?.({
+              tool_choice: {
+                type: "function",
+                name: "prepare_reader_response",
+              },
+            });
+          }
+          const outputTranscript =
+            realtimeOutputTranscriptDeltaSchema.safeParse(event);
+          if (outputTranscript.success)
+            alignSpokenPassage(
+              outputTranscript.data.response_id,
+              outputTranscript.data.delta,
+            );
           const parsed = realtimeUsageEventSchema.safeParse(event);
           const inputTokens = parsed.success
             ? (parsed.data.response.usage?.input_tokens ?? 0)
@@ -668,6 +811,11 @@ export function useLorelineVoice(
     setError("");
     publishActivity(null);
     toolStartedAtRef.current.clear();
+    processedAudioItemsRef.current.clear();
+    spokenTranscriptsRef.current.clear();
+    spokenFocusAttemptRef.current.clear();
+    spokenFocusInFlightRef.current.clear();
+    turnFocusedRef.current = false;
     updateState("idle");
   }, [publishActivity, updateState]);
 

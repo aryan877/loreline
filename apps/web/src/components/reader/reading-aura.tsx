@@ -1,6 +1,11 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-export type ReaderAuraMode = "idle" | "inspecting" | "speaking";
+export type ReaderAuraMode =
+  | "idle"
+  | "listening"
+  | "thinking"
+  | "inspecting"
+  | "speaking";
 
 export type ReaderInspectionTarget = {
   id: string;
@@ -27,7 +32,8 @@ export function ReadingAura({
           label: "Reading this page" as const,
         }
       : null);
-  const visible = mode === "speaking" || target !== null;
+  const stateGlowVisible = mode !== "idle";
+  const visible = stateGlowVisible || target !== null;
 
   return (
     <AnimatePresence>
@@ -35,6 +41,7 @@ export function ReadingAura({
         <motion.div
           key="reader-feedback"
           aria-hidden="true"
+          data-reading-aura={mode}
           className="pdf-reading-aura"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -42,10 +49,10 @@ export function ReadingAura({
           transition={{ duration: reduceMotion ? 0 : 0.2, ease: "easeOut" }}
         >
           <AnimatePresence>
-            {mode === "speaking" && (
+            {stateGlowVisible && (
               <motion.span
-                key="speaking-glow"
-                className="pdf-reading-aura__speaking-glow"
+                key={`state-glow-${mode}`}
+                className="pdf-reading-aura__state-glow"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}

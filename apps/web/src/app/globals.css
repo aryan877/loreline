@@ -240,7 +240,7 @@
   }
 }
 
-@keyframes pdf-speaking-breathe {
+@keyframes pdf-state-glow-breathe {
   0%,
   100% {
     opacity: 0.3;
@@ -294,25 +294,76 @@
   overflow: hidden;
 }
 
-.pdf-reading-aura__speaking-glow {
+.pdf-reading-aura__state-glow {
   position: absolute;
-  inset: -12%;
+  inset: -10%;
+  border-radius: 35%;
+  filter: blur(32px);
+  mix-blend-mode: multiply;
+  will-change: transform, opacity;
+  animation: pdf-state-glow-breathe 3.8s ease-in-out infinite;
+}
+
+.pdf-reading-aura[data-reading-aura="listening"]
+  .pdf-reading-aura__state-glow {
   background:
     radial-gradient(
-      ellipse at 15% 18%,
-      color-mix(in oklab, var(--sky) 24%, transparent),
-      transparent 38%
+      ellipse at 6% 86%,
+      color-mix(in oklab, var(--sage) 34%, transparent),
+      transparent 32%
     ),
     radial-gradient(
-      ellipse at 84% 72%,
-      color-mix(in oklab, var(--coral) 22%, transparent),
-      transparent 42%
+      ellipse at 94% 14%,
+      color-mix(in oklab, var(--sage) 20%, transparent),
+      transparent 30%
     );
-  filter: blur(30px);
-  mix-blend-mode: multiply;
-  opacity: 0.44;
-  will-change: transform;
-  animation: pdf-speaking-breathe 4.8s ease-in-out infinite;
+  opacity: 0.38;
+}
+
+.pdf-reading-aura[data-reading-aura="thinking"]
+  .pdf-reading-aura__state-glow {
+  background:
+    radial-gradient(
+      ellipse at 20% 12%,
+      color-mix(in oklab, var(--gold) 34%, transparent),
+      transparent 34%
+    ),
+    radial-gradient(
+      ellipse at 82% 84%,
+      color-mix(in oklab, var(--primary) 20%, transparent),
+      transparent 32%
+    );
+  opacity: 0.42;
+  animation-duration: 2.8s;
+}
+
+.pdf-reading-aura[data-reading-aura="inspecting"]
+  .pdf-reading-aura__state-glow {
+  background: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in oklab, var(--primary) 38%, transparent),
+    color-mix(in oklab, var(--gold) 18%, transparent) 26%,
+    transparent 52%
+  );
+  opacity: 0.5;
+  animation-duration: 1.4s;
+}
+
+.pdf-reading-aura[data-reading-aura="speaking"]
+  .pdf-reading-aura__state-glow {
+  background:
+    radial-gradient(
+      ellipse at 12% 18%,
+      color-mix(in oklab, var(--sky) 30%, transparent),
+      transparent 36%
+    ),
+    radial-gradient(
+      ellipse at 88% 78%,
+      color-mix(in oklab, var(--coral) 26%, transparent),
+      transparent 38%
+    );
+  opacity: 0.48;
+  animation-duration: 2.2s;
 }
 
 .pdf-reading-aura__inspection-target {

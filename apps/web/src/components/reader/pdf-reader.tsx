@@ -566,7 +566,10 @@ export default function PdfReader({
   const renderHeight = Math.max(1, Math.floor(renderWidth / aspectRatio));
   const renderScale = targetWidth / renderWidth;
   const auraMode: ReaderAuraMode =
-    voiceState === "inspecting" || voiceState === "speaking"
+    voiceState === "listening" ||
+    voiceState === "thinking" ||
+    voiceState === "inspecting" ||
+    voiceState === "speaking"
       ? voiceState
       : "idle";
 
