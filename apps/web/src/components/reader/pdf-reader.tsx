@@ -513,6 +513,7 @@ export default function PdfReader({
   const zoomSnapshotRef = useRef<HTMLCanvasElement>(null);
   const pointerVisualRef = useRef<HTMLSpanElement>(null);
   const snapshotVisibleRef = useRef(false);
+  const snapshotReleaseFrameRef = useRef<number | null>(null);
   const renderedPageRef = useRef<number | null>(null);
   const livePointerRef = useRef<PointerContext>(null);
   const textLayerModelRef = useRef<TextLayerModel | null>(null);
@@ -561,10 +562,31 @@ export default function PdfReader({
       ? voiceState
       : "idle";
 
+  const cancelSnapshotRelease = useCallback(() => {
+    if (snapshotReleaseFrameRef.current === null) return;
+    window.cancelAnimationFrame(snapshotReleaseFrameRef.current);
+    snapshotReleaseFrameRef.current = null;
+  }, []);
+
   const hideZoomSnapshot = useCallback(() => {
+    cancelSnapshotRelease();
     snapshotVisibleRef.current = false;
     setSnapshotVisible(false);
-  }, []);
+  }, [cancelSnapshotRelease]);
+
+  const releaseZoomSnapshot = useCallback(() => {
+    if (!snapshotVisibleRef.current) return;
+    cancelSnapshotRelease();
+    snapshotReleaseFrameRef.current = window.requestAnimationFrame(() => {
+      snapshotReleaseFrameRef.current = window.requestAnimationFrame(() => {
+        snapshotReleaseFrameRef.current = null;
+        snapshotVisibleRef.current = false;
+        setSnapshotVisible(false);
+      });
+    });
+  }, [cancelSnapshotRelease]);
+
+  useEffect(() => cancelSnapshotRelease, [cancelSnapshotRelease]);
 
   const locatePassage = useCallback((passage: string) => {
     const pageNode = pageRef.current;
@@ -652,8 +674,8 @@ export default function PdfReader({
 
   const handlePageRender = useCallback(() => {
     renderedPageRef.current = page;
-    hideZoomSnapshot();
-  }, [hideZoomSnapshot, page]);
+    releaseZoomSnapshot();
+  }, [page, releaseZoomSnapshot]);
 
   const capturePageImage = useCallback<ReaderControls["capturePageImage"]>(
     ({ markPointer }) => {
@@ -699,6 +721,7 @@ export default function PdfReader({
   useEffect(() => {
     if (zoom === renderZoom) return;
     const timeout = window.setTimeout(() => {
+      cancelSnapshotRelease();
       const source = pageRef.current?.querySelector<HTMLCanvasElement>(
         "[data-pdf-render-layer] canvas",
       );
@@ -716,7 +739,7 @@ export default function PdfReader({
       setRenderZoom(zoom);
     }, 160);
     return () => window.clearTimeout(timeout);
-  }, [renderZoom, zoom]);
+  }, [cancelSnapshotRelease, renderZoom, zoom]);
 
   const handlePageLoad = useCallback<
     NonNullable<ComponentProps<typeof Page>["onLoadSuccess"]>
@@ -927,7 +950,7 @@ export default function PdfReader({
       >
         <div
           data-pdf-render-layer="true"
-          className="absolute left-0 top-0 origin-top-left"
+          className="absolute left-0 top-0 origin-top-left will-change-transform"
           style={{
             width: renderWidth,
             height: renderHeight,
@@ -968,7 +991,13 @@ export default function PdfReader({
         <canvas
           ref={zoomSnapshotRef}
           aria-hidden="true"
-          className={`pointer-events-none absolute inset-0 z-[3] size-full transition-opacity duration-100 ${snapshotVisible ? "opacity-100" : "opacity-0"}`}
+          className={`pointer-events-none absolute inset-0 z-[3] size-full will-change-[opacity] ${
+            snapshotVisible
+              ? "opacity-100"
+              : reduceMotion
+                ? "opacity-0"
+                : "opacity-0 transition-opacity duration-75"
+          }`}
         />
         <ReadingAura mode={auraMode} inspectionTarget={inspectionTarget} />
         <HighlightLayer
