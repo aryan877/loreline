@@ -1,280 +1,152 @@
-# Loreline
+<p align="center">
+  <img src="apps/web/src/app/icon.svg" width="92" alt="Loreline logo" />
+</p>
 
-> A page-aware, voice-first reading room for PDF books.
+<h1 align="center">Loreline</h1>
 
-Loreline keeps the book—not a chat box—at the center of the experience. It renders the real PDF, preserves exact text geometry for selections and highlights, and gives a realtime voice companion controlled access to the visible page, the pointer, saved notes, retrieval, navigation, and a visual thinking board.
+<p align="center"><strong>Read the PDF. Talk to the page. Keep your thinking beside it.</strong></p>
 
-> [!IMPORTANT]
-> Loreline is pre-launch. The architecture is intentionally optimized for decisive iteration: one clean database baseline, no compatibility shims, and strict framework boundaries.
+<p align="center">
+  Loreline turns a static book into a live reading workspace. The PDF stays in front of you while GPT Realtime 2.1 can inspect the page, search the whole book, focus the exact passage it is discussing, and help you leave behind useful notes, bookmarks, and visual explanations.
+</p>
 
-## What works
+## The demo
 
-| Capability | Current implementation |
+1. Upload a PDF. Loreline extracts each page and builds a full-text and embedding index.
+2. Read it like a real document: continuous pages, smooth trackpad zoom, selectable text, thumbnails, and outline navigation.
+3. Point at something and ask out loud. The voice model receives the page, pointer, selection, and recent conversation.
+4. Watch the agent work. It can inspect the rendered page, search the book, scroll to a passage, highlight it, turn pages, and bookmark the page.
+5. Keep what matters. Highlights, notes, and generated visuals stay attached to the book instead of disappearing into chat history.
+6. Ask a follow-up. Long sessions compact into structured memory, while Tavily is available when the answer needs current information outside the PDF.
+
+## Why it feels different
+
+| | Loreline |
 | --- | --- |
-| Faithful PDF reader | PDF.js canvas and text layer share one viewport; zoom, selections, sentence hover, bookmarks, highlights, and notes stay page-accurate |
-| Voice-first companion | OpenAI Realtime over browser WebRTC with ten-minute ephemeral client secrets |
-| On-demand vision | The agent calls `inspect_page` only when pixels matter; a bounded page image can include the live cursor marker |
-| Grounded retrieval | Immediate Postgres full-text search plus resumable OpenRouter embeddings and pgvector HNSW retrieval |
-| Durable ingestion | Direct browser-to-R2 upload, server-side PDF validation/extraction, Redis Stream jobs, database progress, retry, and crash recovery |
-| Nested library | Shelf and Stack navigation, arbitrary nesting, breadcrumb paths, drag-and-drop moves, and folder-aware uploads |
-| Reader workspace | Notes and generated visuals live beside the page; saved notes stay linked to exact highlighted text |
-| Private ownership | Better Auth sessions, account-scoped R2 keys, owner checks on every book route, and Redis-backed limits |
-| Predictable client state | TanStack Query owns server state, polling, pagination, mutations, invalidation, and global error toasts |
+| The book stays central | Conversation and tools support the PDF instead of replacing it with a chat transcript. |
+| Actions are visible | When the model refers to a passage, Loreline scrolls there and focuses the actual text. |
+| Voice can use the interface | GPT Realtime 2.1 calls typed reader tools over WebRTC rather than merely describing what the user should click. |
+| Retrieval knows the page | Sentence-aware chunks never cross page boundaries, so every result can navigate back to its source. |
+| Pixels are available when needed | The model can request a bounded screenshot of the rendered page, including the live pointer position. |
+| Reading leaves useful artifacts | Notes, bookmarks, highlights, and visual explanations remain linked to the book. |
 
-## Quick start
+## Architecture
 
-### Local apps with Docker infrastructure
+![Loreline system architecture](docs/architecture.svg)
+
+The boundaries are enforced in code:
+
+- `apps/web` is the only Next.js app. Its same-origin `/api` gateway accepts JSON and rejects PDF bodies.
+- `apps/server` is an Effect HTTP service with a supervised indexing worker. It has no Next.js runtime dependency.
+- `packages/contracts` owns browser-safe Zod contracts, shared limits, and domain types.
+- `packages/database` owns the Drizzle schema, pgvector queries, and migrations.
+- PDF bytes move directly from the browser to private Cloudflare R2 through short-lived signed URLs.
+
+```bash
+npm run verify:architecture
+```
+
+## PDF RAG
+
+![Loreline PDF indexing flow](docs/pdf-rag-flow.svg)
+
+PDF text is split into page-bound, sentence-aware chunks targeting 2,600 characters with a 260-character overlap. PostgreSQL full-text search is available as soon as parsing completes. A Redis Stream worker then creates embeddings in resumable batches and stores them in pgvector. Search fuses lexical and cosine rankings, keeping the book searchable even while vectors are still being generated.
+
+Index work is durable: Redis consumer groups keep pending jobs, PostgreSQL leases prevent duplicate workers, and progress is committed after every batch. A restart resumes missing vectors rather than beginning again.
+
+## Realtime reader tools
+
+GPT Realtime 2.1 receives compact text context for the current page and calls explicit browser tools:
+
+| Tool | What the reader sees |
+| --- | --- |
+| `inspect_page` | A visible page inspection with the pointer marked when useful |
+| `search_book` | Retrieval across the complete PDF index |
+| `focus_passage` | Smooth scroll and focus on the exact quoted text |
+| `turn_page` | Reader navigation |
+| `bookmark_page` | A real saved-page bookmark |
+| `save_highlight_note` | A persistent note attached to selected text |
+| `place_note`, `place_visual` | Notes and GPT Image 2 visuals on the thinking board |
+| `search_web` | Current information through Tavily when the book is not enough |
+
+The browser connects to OpenAI over WebRTC using a ten-minute ephemeral client secret. Long conversations compact into structured memory before the Realtime context fills up; the current page and active selection always remain fresh.
+
+## Library and reader
+
+- Nested Shelf and Stack folders with breadcrumbs and drag-and-drop moves
+- Direct-to-R2 uploads with progress, retry, and PDF validation
+- Cover thumbnails rendered from the first PDF page
+- Continuous virtualized pages with compositor-only gesture zoom
+- PDF outline and thumbnail navigation
+- Exact text selection, hover, highlights, saved notes, and bookmarks
+- A tabbed board that keeps notes out of the reading area
+- Better Auth ownership checks and account-scoped object keys
+- TanStack Query for all client server-state and global error handling
+
+## Run locally
+
+Requirements: Node.js 22+, Docker, an R2 bucket, and model credentials for the features you want to run.
 
 ```bash
 cp .env.example .env
-# Fill the R2 and model credentials you intend to use.
-
 npm install
 npm run infra:up
 npm run db:migrate
 npm run dev
 ```
 
-Open <http://localhost:3000>. The Next.js web app runs on port `3000`; the standalone Effect API and indexing worker run on `3001`; Postgres and Redis use `5432` and `6379`.
+Open <http://localhost:3000>.
 
-### Full Docker development stack
+To run everything in Docker:
 
 ```bash
 npm run docker:dev
 ```
 
-Both apps hot-refresh from the bind-mounted workspace. The server applies pending migrations before starting. If dependencies changed while the named `loreline_node_modules` volume already existed, synchronize it once:
+If dependencies change while the named `/app/node_modules` volume exists:
 
 ```bash
 docker compose exec web npm install
 ```
 
-### Production-style Docker stack
+## Services and models
+
+| Service | Role |
+| --- | --- |
+| PostgreSQL + pgvector | Books, annotations, full-text search, embeddings, and indexing progress |
+| Redis | Auth cache, rate limits, and the durable indexing stream |
+| Cloudflare R2 | Private PDFs and generated visuals |
+| OpenAI `gpt-realtime-2.1` | Realtime speech, reasoning, and reader tool calls |
+| OpenRouter | Embeddings, GPT Image 2 on low quality, and conversation compaction |
+| Tavily | Optional current web search |
+
+Copy `.env.example` to `.env`; it documents every variable without containing secrets. The main groups are:
+
+| Variables | Purpose |
+| --- | --- |
+| `DATABASE_URL`, `REDIS_URL` | Application state and indexing |
+| `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` | Authentication and canonical origin |
+| `R2_*` | Private object storage and signed uploads |
+| `OPENAI_API_KEY`, `OPENAI_REALTIME_MODEL` | Realtime voice |
+| `OPENROUTER_*` | Embeddings, images, and compaction |
+| `TAVILY_API_KEY` | Current web search |
+
+## Security
+
+- PDFs are limited to 50 MB and validated by MIME intent, exact R2 size, and `%PDF-` magic bytes.
+- Object keys are account-scoped; every book, folder, annotation, and file route checks ownership.
+- R2 and model credentials stay server-side. The browser receives only scoped, short-lived credentials.
+- Unknown server failures are logged and returned as clean user-facing errors.
+- Deleting a book or Stack removes its complete private R2 prefix and dependent database records.
+- Expensive upload, indexing, search, image, annotation, and Realtime endpoints are rate-limited per user.
+
+## Checks
 
 ```bash
-cp .env.example .env.production
-# Replace every placeholder and set POSTGRES_PASSWORD + REDIS_PASSWORD.
-npm run docker:prod
-```
-
-Production builds a Next.js standalone artifact for `apps/web` only. `apps/server` runs the Effect/Node process directly and shuts its HTTP server, managed services, and scoped indexing worker down gracefully.
-
-## Architecture
-
-![Loreline system architecture](docs/architecture.svg)
-
-The separation is enforced, not conventional:
-
-- `apps/web` is the only Next.js application. Its catch-all `/api` route is a same-origin JSON gateway capped at 2 MB and explicitly rejects PDF bodies.
-- `apps/server` is an Effect HTTP service on Node using `@effect/platform` and `@effect/platform-node`. It has no Next dependency, config, route tree, runtime import, or build artifact.
-- `packages/contracts` owns browser-safe Zod contracts, shared limits, and domain types.
-- `packages/database` owns the Drizzle schema, client, row types, and the single pre-launch baseline migration.
-- Postgres is authoritative for application and indexing state. Redis provides auth secondary storage, rate limits, and the durable indexing stream. R2 holds private PDF and illustration bytes.
-
-Run the boundary check at any time:
-
-```bash
+npm run typecheck
+npm run lint
+npm test -- --run
+npm run test:e2e
 npm run verify:architecture
+npm run build
 ```
-
-It fails if Next/React/server-only leaks into `apps/server`, if a detached indexing call returns, if legacy server paths reappear, if loose root server modules or empty source directories exist, or if Docker expects a server-side Next artifact.
-
-### Server layout
-
-```text
-apps/server/src
-├── main.ts                         process entry; Effect layers and lifecycle
-├── api/router.ts                   HTTP routes and Web Request/Response adapter
-├── modules
-│   ├── auth/                       Better Auth boundary
-│   ├── books/
-│   │   ├── routes/                 upload, completion, file, item, move, search, retry
-│   │   ├── index-queue.ts          Redis Stream producer + supervised consumer
-│   │   ├── indexing.ts             leases, batches, retries, persisted progress
-│   │   ├── service.ts              book lifecycle and private R2 cleanup
-│   │   └── text.ts                 page-accurate sentence chunking
-│   ├── folders/
-│   │   ├── routes/                 collection, item, move, tree, breadcrumb
-│   │   ├── repository.ts           owner-scoped Drizzle queries and recursive CTE
-│   │   ├── service.ts              nesting rules and recursive deletion workflow
-│   │   └── tree.ts                 pure hierarchy and breadcrumb construction
-│   ├── annotations/routes/         highlights, notes, bookmarks
-│   ├── ai/
-│   │   ├── routes/                 realtime, compaction, illustration endpoints
-│   │   ├── providers/              OpenAI/OpenRouter provider boundaries
-│   │   └── realtime/               typed ephemeral-session contract
-│   └── system/                     health checks
-└── platform/                       config, HTTP errors, Redis, managed services
-```
-
-### Shelf, Stacks, and deletion
-
-The Shelf is the root view; it is not a separate database row. A Stack is an owner-scoped `folders` row, and `parent_id` creates arbitrary nesting:
-
-```text
-Shelf
-└── Work                    folders: work.parent_id = NULL
-    └── History             folders: history.parent_id = work
-        └── history-notes.pdf  books: folder_id = history
-```
-
-Card counters intentionally show direct children. The delete dialog asks the server for a recursive subtree summary, requires the exact Stack name, and the delete request resolves that subtree again rather than trusting cached UI counts. Every affected book prefix is cleared from R2; Postgres cascades the confirmed root deletion through nested Stacks and dependent book data.
-
-## PDF upload and RAG
-
-![Loreline PDF ingestion and retrieval flow](docs/pdf-rag-flow.svg)
-
-The upload request and the expensive index job are deliberately separate:
-
-1. The browser submits PDF metadata to the Effect API through the bounded Next.js gateway.
-2. The API verifies the session, rate limit, MIME, size, and account-scoped object key, then returns a ten-minute R2 presigned `PUT` URL.
-3. The browser uploads the PDF bytes directly to private R2. R2 credentials and the PDF body never pass through Next.js.
-4. The browser calls the completion endpoint. The server checks the stored byte count and `%PDF-` magic bytes, extracts every page, and writes page-accurate chunks in one transaction.
-5. The book becomes readable immediately. Postgres full-text search is available as soon as chunks exist.
-6. The API appends `{bookId,userId}` to a Redis Stream and returns. A supervised Effect worker claims the job and embeds batches of 16 passages.
-7. Each successful batch stores vectors and authoritative progress. Retries resume only chunks whose embedding is still null.
-8. Search fuses lexical and semantic rankings. If OpenRouter is unavailable, lexical retrieval continues instead of making the book unusable.
-
-Chunks target 2,600 characters with a 260-character sentence overlap. They never cross PDF pages, so retrieved passages retain exact page identity for navigation and highlighting.
-
-### Why Redis Streams here?
-
-A Redis string/list is just data at a key. A Redis Stream is an append-only, ordered log of entries with unique IDs. A consumer group adds queue behavior:
-
-- `XADD` persists an indexing job to the log before the HTTP request returns.
-- `XREADGROUP` gives each new entry to one consumer in the group, distributing work across server instances.
-- Claimed work stays in the pending-entry list until the worker sends `XACK`; merely reading it does not delete it.
-- If a process dies, `XAUTOCLAIM` transfers sufficiently old pending work to a live consumer.
-- Loreline also takes a 15-minute Postgres lease and writes progress per batch. Duplicate delivery is therefore safe and an interrupted job resumes instead of re-embedding completed chunks.
-- After acknowledgement, Loreline deletes the processed stream entry and approximately caps the stream at 10,000 entries. Redis runs with AOF persistence and `noeviction` in the supplied Docker stacks.
-
-This is similar to a lightweight message queue, but it is not identical to RabbitMQ, SQS, or Kafka. Redis Streams supplies an ordered log, consumer groups, acknowledgements, and pending recovery; Loreline supplies retries, idempotency, leases, progress, and failure state in application code. The resulting guarantee is **at-least-once delivery with idempotent processing**, not magical exactly-once execution.
-
-## Realtime context and long sessions
-
-The voice agent receives compact live text context: book title, current page, visible extracted text, current selection, saved passages on that page, and any compacted conversation memory. A page bitmap is never pushed merely because the cursor or page moved.
-
-Available browser-side tools are:
-
-- `inspect_page` — capture the full rendered page on demand, optionally with the live pointer visibly marked.
-- `search_book` — retrieve passages outside the visible page through hybrid RAG.
-- `focus_passage` — focus exact text in the PDF.
-- `turn_page` — handle explicit next/previous navigation.
-- `save_highlight_note` — persist a note against an exact passage.
-- `place_note` and `place_visual` — add artifacts to the side workspace.
-
-There is no literal unlimited context window. At 95% of the configured Realtime conversation budget, the browser asks the server to compact completed turns into strict structured memory through the configured cheap OpenRouter model. That memory is placed into the agent instructions, summarized history is removed, and current page context remains primary. Realtime’s 70% retention-ratio truncation is a final safety net if compaction is delayed or unavailable.
-
-## Configuration
-
-Copy `.env.example` to `.env`. Never put real secrets in committed files.
-
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `DATABASE_URL` | Yes | Postgres connection used by Drizzle |
-| `REDIS_URL` | Yes | Auth cache, rate limits, and index stream |
-| `SERVER_INTERNAL_URL` | Yes | Next.js gateway → Effect API address |
-| `BETTER_AUTH_SECRET` | Yes outside throwaway local dev | Session signing; use at least 32 random characters |
-| `BETTER_AUTH_URL` | Yes | Canonical application origin |
-| `NEXT_PUBLIC_APP_URL` | Yes | Trusted browser origin |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional pair | Google OAuth provider |
-| `R2_ACCOUNT_ID` | Yes | Cloudflare account containing the private bucket |
-| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Yes | Bucket-scoped Object Read & Write token |
-| `R2_BUCKET_NAME` | Yes | Private PDF/illustration bucket |
-| `OPENAI_API_KEY` | For voice | Mints short-lived Realtime client secrets |
-| `OPENAI_REALTIME_MODEL` | No | Defaults to `gpt-realtime-2.1` |
-| `OPENROUTER_API_KEY` | For RAG/visuals/memory | Embeddings, low-quality illustrations, and compaction |
-| `OPENROUTER_EMBEDDING_MODEL` | No | Defaults to `openai/text-embedding-3-small` |
-| `OPENROUTER_IMAGE_MODEL` | No | Defaults to `openai/gpt-image-2`; requests use `quality: low` |
-| `OPENROUTER_COMPACTION_MODEL` | No | Defaults to `deepseek/deepseek-v4-flash` |
-| `TAVILY_API_KEY` | For live web search | Recent or outside-book facts requested through Realtime voice |
-
-For local Google OAuth, configure this exact authorized redirect URI in Google Cloud:
-
-```text
-http://localhost:3000/api/auth/callback/google
-```
-
-## Security and limits
-
-- PDFs are capped at 50 MB at the shared contract, API, signed upload, and UI boundaries.
-- Object keys begin with `users/{userId}/books/{bookId}/`; book routes always re-check the authenticated owner.
-- Folder parent and book-folder links use composite owner foreign keys, so Postgres rejects cross-account nesting even if application validation regresses.
-- Deleting a book or confirmed Stack clears its complete private R2 prefix. Stack deletion recursively cascades its database books, child Stacks, chunks, highlights, notes, bookmarks, and illustration records.
-- Completion verifies exact R2 byte count, MIME intent, and PDF magic bytes before parsing.
-- Unknown failures are logged server-side and return a generic message. Only deliberate `HttpError`/`UserFacingError` text reaches users.
-- OpenRouter requests deny provider data collection where supported. Model API keys stay server-side.
-- Realtime clients receive a scoped ten-minute `ek_…` secret, never the long-lived OpenAI key.
-
-| Expensive boundary | Limit per user |
-| --- | ---: |
-| Begin/complete PDF upload | 10/hour each |
-| Manual index retry | 20/hour |
-| Realtime client secret | 20/hour |
-| Conversation compaction | 24/hour |
-| Illustration generation | 12/hour |
-| Hybrid book search | 90/hour |
-| Highlights | 180/hour |
-| Bookmarks | 120/hour |
-
-## Development commands
-
-```bash
-npm run dev                  # Next web + Effect server
-npm run typecheck            # strict TypeScript across workspaces
-npm run lint                 # zero-warning ESLint
-npm test -- --run            # focused unit/contract tests
-npm run test:e2e             # critical rendered browser flows
-npm run verify:architecture  # enforce framework and structure boundaries
-npm run build                # production web + server validation
-npm run db:generate          # regenerate migration after schema changes
-npm run db:migrate           # apply pending Drizzle migrations
-npm run db:studio            # inspect Postgres
-npm run infra:up             # start Postgres + Redis
-npm run infra:down           # stop local infrastructure
-```
-
-## Troubleshooting
-
-### Docker reports a package missing after `npm install`
-
-The named `/app/node_modules` volume overrides dependencies baked into the image. Run:
-
-```bash
-docker compose exec web npm install
-docker compose --profile app up -d --build server web
-```
-
-### A book is readable but grounded search is still building
-
-This is expected for a large book. The library card polls persisted progress while the Redis consumer embeds batches. If it changes to **Grounded search paused**, use **Retry search index**; completed vectors are preserved.
-
-Inspect the queue directly:
-
-```bash
-docker compose exec redis redis-cli XINFO GROUPS loreline:book-index
-docker compose exec redis redis-cli XPENDING loreline:book-index loreline-indexers
-```
-
-### A PDF fails during preparation
-
-Loreline keeps the private upload and displays the deliberate parsing failure. Verify the file is an unlocked PDF under 50 MB, then use **Resume preparation**. Image-only/scanned PDFs need OCR, which is not implemented yet.
-
-### R2 health is degraded
-
-Confirm all four `R2_*` values describe the same private bucket and bucket-scoped token. `GET /api/health` verifies Postgres, Redis, and R2 without exposing credentials.
-
-### Voice initially fails or cannot connect
-
-Confirm `OPENAI_API_KEY`, the configured Realtime model, microphone permission, and WebRTC connectivity. The browser creates page images only after an `inspect_page` tool call, avoiding oversized RTC data-channel messages.
-
-### Google reports a redirect mismatch or missing provider
-
-Set both Google variables, restart the Effect server, and ensure the exact callback above is authorized. The provider is deliberately omitted when either credential is absent.
-
-## Current limitations
-
-- OCR is not yet available for scanned/image-only PDFs.
-- Lexical FTS currently uses PostgreSQL’s English configuration; multilingual semantic embeddings still work, but language-specific lexical analyzers are future work.
-- The 50 MB upload ceiling is deliberate.
-- This is a pre-launch system; deployment automation and observability beyond structured Effect HTTP logs are still evolving.
