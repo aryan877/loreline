@@ -87,7 +87,6 @@ import type {
   ReaderSelection,
   VoiceState,
 } from "@loreline/contracts/reader";
-import { PageNavigator } from "@/components/reader/page-navigator";
 
 const PdfReader = dynamic(() => import("@/components/reader/pdf-reader"), {
   ssr: false,
@@ -97,6 +96,21 @@ const PdfReader = dynamic(() => import("@/components/reader/pdf-reader"), {
     </div>
   ),
 });
+
+const PageNavigator = dynamic(
+  () =>
+    import("@/components/reader/page-navigator").then(
+      (module) => module.PageNavigator,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <aside className="absolute inset-y-0 left-0 z-30 grid w-56 place-items-center border-r bg-background lg:relative">
+        <LoaderCircle className="size-4 animate-spin text-brand-ink" />
+      </aside>
+    ),
+  },
+);
 
 async function getBook(bookId: string): Promise<ReaderBook> {
   const data = await apiJson<BookResponse>(`/api/books/${bookId}`);
