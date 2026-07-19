@@ -82,6 +82,7 @@ import type {
   ReaderFocus,
   ReaderFocusRequest,
   ReaderSelection,
+  VoiceState,
 } from "@loreline/contracts/reader";
 
 const PdfReader = dynamic(() => import("@/components/reader/pdf-reader"), {
@@ -112,8 +113,9 @@ async function getBookmarks(bookId: string) {
   return data.bookmarks;
 }
 
-function VoiceOrb({ state }: { state: string }) {
-  const active = state === "listening" || state === "speaking";
+function VoiceOrb({ state }: { state: VoiceState }) {
+  const active =
+    state === "listening" || state === "inspecting" || state === "speaking";
   return (
     <span className="relative grid size-10 place-items-center rounded-full bg-coral text-primary-foreground">
       {active && (
@@ -125,6 +127,8 @@ function VoiceOrb({ state }: { state: string }) {
       )}
       {state === "connecting" ? (
         <LoaderCircle className="size-4 animate-spin" />
+      ) : state === "inspecting" ? (
+        <Sparkles className="size-4" />
       ) : state === "speaking" ? (
         <Volume2 className="size-4" />
       ) : (
@@ -214,7 +218,7 @@ function SavedHighlightCard({
 
   const changed = note.trim() !== (highlight.note ?? "");
   return (
-    <article className="flex h-[22rem] w-72 max-w-[calc(100vw-5rem)] shrink-0 snap-start flex-col overflow-hidden rounded-2xl border bg-card shadow-sm">
+    <article className="grid h-[24rem] w-[min(32rem,calc(var(--workspace-width)-3.5rem))] max-w-[calc(100vw-5rem)] shrink-0 snap-start grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-2xl border bg-card shadow-sm">
       <div className="flex items-start gap-3 border-b px-3.5 py-3">
         <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-reader-highlight/60 text-[0.64rem] font-semibold text-foreground">
           {highlight.page}
@@ -228,8 +232,8 @@ function SavedHighlightCard({
           </span>
         </span>
       </div>
-      <div className="min-h-0 flex-1 bg-paper/55 p-3.5">
-        <p className="scrollbar-none max-h-24 overflow-y-auto whitespace-pre-wrap break-words pr-1 text-xs leading-relaxed text-ink-soft [overflow-wrap:anywhere]">
+      <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_7rem] gap-3 bg-paper/55 p-3.5">
+        <p className="scrollbar-none min-h-0 overflow-y-auto whitespace-pre-wrap break-words pr-1 text-xs leading-relaxed text-ink-soft [overflow-wrap:anywhere]">
           “{highlight.text}”
         </p>
         <Textarea
@@ -237,10 +241,11 @@ function SavedHighlightCard({
           value={note}
           onChange={(event) => setNote(event.target.value.slice(0, 4000))}
           placeholder="Add a note to this passage…"
-          className="mt-3 min-h-28 w-full max-w-full resize-none bg-background text-xs"
+          rows={4}
+          className="field-sizing-fixed h-28 min-h-0 max-h-28 w-full max-w-full resize-none overflow-y-auto bg-background text-xs"
         />
       </div>
-      <div className="flex flex-wrap items-center gap-1.5 border-t bg-card p-2.5">
+      <div className="grid grid-cols-2 items-center gap-1.5 border-t bg-card p-2.5">
         <Button
           variant="ghost"
           size="sm"
@@ -250,12 +255,17 @@ function SavedHighlightCard({
           <Trash2 />
           Remove
         </Button>
-        <Button variant="outline" size="sm" onClick={onOpen}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="min-w-0"
+          onClick={onOpen}
+        >
           Show on page
         </Button>
         <Button
           size="sm"
-          className="ml-auto"
+          className="col-span-2 w-full"
           disabled={!changed}
           onClick={() => void onUpdate(note.trim() || null)}
         >
@@ -285,6 +295,7 @@ type SideboardProps = {
   onDeleteHighlight: (highlightId: string) => Promise<void>;
   onOpenBookmark: (page: number) => void;
   onDeleteBookmark: (bookmarkId: string) => Promise<void>;
+  onVoiceStateChange: (state: VoiceState) => void;
 };
 
 function Sideboard({
@@ -303,6 +314,7 @@ function Sideboard({
   onDeleteHighlight,
   onOpenBookmark,
   onDeleteBookmark,
+  onVoiceStateChange,
 }: SideboardProps) {
   const [notesOpen, setNotesOpen] = useState(true);
   const [deleteRequest, setDeleteRequest] =
@@ -330,14 +342,25 @@ function Sideboard({
     [book.id, book.title, page, visibleText, selectedText, pointer, highlights],
   );
   const voice = useLorelineVoice(voiceContext, addBoardItem, readerControls);
+  useEffect(() => {
+    onVoiceStateChange(voice.state);
+  }, [onVoiceStateChange, voice.state]);
+  useEffect(
+    () => () => {
+      onVoiceStateChange("idle");
+    },
+    [onVoiceStateChange],
+  );
   const voiceLabel =
     voice.state === "connecting"
       ? "Connecting…"
-      : voice.state === "speaking"
-        ? "Loreline is speaking"
-        : voice.state === "listening"
-          ? "Listening"
-          : "Start voice";
+      : voice.state === "inspecting"
+        ? "Looking at the page…"
+        : voice.state === "speaking"
+          ? "Loreline is speaking"
+          : voice.state === "listening"
+            ? "Listening"
+            : "Start voice";
   const hasWorkspaceContent =
     items.length > 0 || highlights.length > 0 || bookmarks.length > 0;
   const orderedHighlights = useMemo(
@@ -529,8 +552,8 @@ function Sideboard({
               {notesOpen && (
                 <div id="saved-notes-panel" className="border-t bg-paper/55">
                   <div className="flex items-center justify-between gap-3 px-3.5 pt-3">
-                    <p className="font-mono text-[0.58rem] uppercase tracking-[0.14em] text-muted-foreground">
-                      Swipe sideways to browse
+                    <p className="text-[0.68rem] text-muted-foreground">
+                      Browse saved notes
                     </p>
                     {orderedHighlights.length > 1 && (
                       <div className="flex items-center gap-1">
@@ -689,6 +712,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   const [sideboardOpen, setSideboardOpen] = useState(true);
   const [sideboardWidth, setSideboardWidth] = useState(368);
   const [resizingSideboard, setResizingSideboard] = useState(false);
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [pointer, setPointer] = useState<PointerContext>(null);
   const [selection, setSelection] = useState<ReaderSelection | null>(null);
   const [activeFocus, setActiveFocus] = useState<ReaderFocus | null>(null);
@@ -1065,6 +1089,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
       onDeleteBookmark={async (bookmarkId) => {
         await deleteBookmarkMutation.mutateAsync(bookmarkId);
       }}
+      onVoiceStateChange={setVoiceState}
     />
   );
 
@@ -1215,6 +1240,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
         <div className="relative min-h-0 overflow-hidden">
           <div
             ref={viewportRef}
+            data-reader-viewport="true"
             className="scrollbar-none absolute inset-0 overflow-auto p-4 sm:p-6"
           >
             <PdfReader
@@ -1222,6 +1248,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
               page={page}
               viewport={viewportSize}
               zoom={zoom}
+              voiceState={voiceState}
               highlights={pageHighlights}
               activeFocus={displayedFocus}
               focusRequest={focusRequest}

@@ -187,32 +187,38 @@ export function useLorelineVoice(
         scope: z.enum(["pointer", "page"]),
       }),
       execute: async ({ scope }) => {
-        const current = contextRef.current;
-        const session = sessionRef.current;
-        if (!session || session.transport.status !== "connected")
-          return `Current page: ${current.page}. A visual snapshot is unavailable because voice is not connected.`;
-
-        const capture = controlsRef.current.capturePageImage({
-          markPointer: scope === "pointer",
-        });
-        if (!capture)
-          return `Current page: ${current.page}. The rendered page image is not ready, so answer from the extracted text or ask the reader to try again.`;
-
-        const pointerSummary = capture.pointer
-          ? `${Math.round(capture.pointer.x * 100)}% from the left and ${Math.round(capture.pointer.y * 100)}% from the top${capture.pointer.text ? `, over “${capture.pointer.text}”` : ""}`
-          : "not currently on the page";
-
+        setState("inspecting");
         try {
-          session.addImage(capture.dataUrl, { triggerResponse: false });
-          return scope === "pointer"
-            ? `Attached the compressed full page ${capture.page} with the cursor visibly marked at ${pointerSummary}. Use the annotated image, the extracted pointer text when present, and the live page text together.`
-            : `Attached a compressed full-page image for page ${capture.page}. Use that image and the live page text to answer.`;
-        } catch (cause) {
-          console.error(
-            "Loreline could not attach the requested page image",
-            cause,
-          );
-          return `Current page: ${capture.page}. The pointer is ${pointerSummary}. The visual snapshot could not be attached, so answer from extracted text or ask the reader to try again.`;
+          const current = contextRef.current;
+          const session = sessionRef.current;
+          if (!session || session.transport.status !== "connected")
+            return `Current page: ${current.page}. A visual snapshot is unavailable because voice is not connected.`;
+
+          const capture = controlsRef.current.capturePageImage({
+            markPointer: scope === "pointer",
+          });
+          if (!capture)
+            return `Current page: ${current.page}. The rendered page image is not ready, so answer from the extracted text or ask the reader to try again.`;
+
+          const pointerSummary = capture.pointer
+            ? `${Math.round(capture.pointer.x * 100)}% from the left and ${Math.round(capture.pointer.y * 100)}% from the top${capture.pointer.text ? `, over “${capture.pointer.text}”` : ""}`
+            : "not currently on the page";
+
+          try {
+            session.addImage(capture.dataUrl, { triggerResponse: false });
+            return scope === "pointer"
+              ? `Attached the compressed full page ${capture.page} with the cursor visibly marked at ${pointerSummary}. Use the annotated image, the extracted pointer text when present, and the live page text together.`
+              : `Attached a compressed full-page image for page ${capture.page}. Use that image and the live page text to answer.`;
+          } catch (cause) {
+            console.error(
+              "Loreline could not attach the requested page image",
+              cause,
+            );
+            return `Current page: ${capture.page}. The pointer is ${pointerSummary}. The visual snapshot could not be attached, so answer from extracted text or ask the reader to try again.`;
+          }
+        } finally {
+          if (sessionRef.current?.transport.status === "connected")
+            setState("listening");
         }
       },
     });

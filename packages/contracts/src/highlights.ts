@@ -1,15 +1,9 @@
 import { z } from "zod";
 import { highlightRectSchema } from "./domain/reader";
 
-export const MAX_HIGHLIGHT_TEXT_LENGTH = 4_000;
 export const MAX_HIGHLIGHT_NOTE_LENGTH = 4_000;
-export const MAX_HIGHLIGHT_RECTS = 64;
 
-const highlightTextSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(MAX_HIGHLIGHT_TEXT_LENGTH);
+const highlightTextSchema = z.string().trim().min(1);
 const highlightNoteSchema = z
   .string()
   .trim()
@@ -22,7 +16,7 @@ export const highlightSchema = z.object({
   page: z.number().int().positive(),
   text: highlightTextSchema,
   note: highlightNoteSchema,
-  rects: z.array(highlightRectSchema).min(1).max(MAX_HIGHLIGHT_RECTS),
+  rects: z.array(highlightRectSchema).min(1),
   createdAt: z.iso.datetime(),
 });
 export type Highlight = z.infer<typeof highlightSchema>;
@@ -36,18 +30,14 @@ export const createHighlightInputSchema = z.object({
   page: z.number().int().positive(),
   text: highlightTextSchema,
   note: highlightNoteSchema.optional().default(null),
-  rects: z.array(highlightRectSchema).min(1).max(MAX_HIGHLIGHT_RECTS),
+  rects: z.array(highlightRectSchema).min(1),
 });
-export type CreateHighlightInput = z.input<
-  typeof createHighlightInputSchema
->;
+export type CreateHighlightInput = z.input<typeof createHighlightInputSchema>;
 
 export const updateHighlightInputSchema = z.object({
   note: highlightNoteSchema,
 });
-export type UpdateHighlightInput = z.infer<
-  typeof updateHighlightInputSchema
->;
+export type UpdateHighlightInput = z.infer<typeof updateHighlightInputSchema>;
 
 export const highlightResponseSchema = z.object({
   highlight: highlightSchema,

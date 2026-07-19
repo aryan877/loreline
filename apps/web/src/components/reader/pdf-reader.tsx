@@ -5,6 +5,7 @@ import {
   type ComponentProps,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -20,21 +21,20 @@ import type {
   ReaderFocus,
   ReaderFocusRequest,
   ReaderSelection,
+  VoiceState,
 } from "@loreline/contracts/reader";
 import { Button } from "@/components/ui/button";
-import { findMatchingTextRunRange, sentenceTextRanges } from "@/lib/pdf-text";
+import { ReadingAura, type ReaderAuraMode } from "./reading-aura";
+import {
+  edgeAutoScrollVelocity,
+  findMatchingTextRunRange,
+  sentenceTextRanges,
+} from "@/lib/pdf-text";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
   import.meta.url,
 ).toString();
-
-const pdfOptions = {
-  cMapUrl: "/pdfjs/cmaps/",
-  cMapPacked: true,
-  standardFontDataUrl: "/pdfjs/standard_fonts/",
-  wasmUrl: "/pdfjs/wasm/",
-};
 
 const REALTIME_IMAGE_MAX_DATA_URL_LENGTH = 120_000;
 const REALTIME_IMAGE_WIDTHS = [960, 768, 640, 512, 384] as const;
@@ -119,6 +119,7 @@ type PdfReaderProps = {
   page: number;
   viewport: { width: number; height: number };
   zoom: number;
+  voiceState: VoiceState;
   highlights: Highlight[];
   activeFocus: ReaderFocus | null;
   focusRequest: ReaderFocusRequest | null;
@@ -221,11 +222,10 @@ function mergeSelections(
             Math.abs(candidate.height - rect.height) < 0.0001,
         ) === index,
     )
-    .sort((left, right) => left.y - right.y || left.x - right.x)
-    .slice(0, 64);
+    .sort((left, right) => left.y - right.y || left.x - right.x);
   return {
     page: base.page,
-    text: `${base.text}\n${addition.text}`.trim().slice(0, 4_000),
+    text: `${base.text}\n${addition.text}`.trim(),
     rects,
   };
 }
@@ -435,6 +435,7 @@ export default function PdfReader({
   page,
   viewport,
   zoom,
+  voiceState,
   highlights,
   activeFocus,
   focusRequest,
@@ -447,6 +448,8 @@ export default function PdfReader({
   onFocusResolved,
 }: PdfReaderProps) {
   const pageRef = useRef<HTMLDivElement>(null);
+  const zoomSnapshotRef = useRef<HTMLCanvasElement>(null);
+  const snapshotVisibleRef = useRef(false);
   const renderedPageRef = useRef<number | null>(null);
   const livePointerRef = useRef<PointerContext>(null);
   const textLayerModelRef = useRef<TextLayerModel | null>(null);
@@ -454,7 +457,14 @@ export default function PdfReader({
   const modifierActiveRef = useRef(false);
   const modifierSelectionRef = useRef<ReaderSelection | null>(null);
   const sweptSentenceKeysRef = useRef(new Set<string>());
+  const autoScrollFrameRef = useRef<number | null>(null);
+  const autoScrollPointerRef = useRef<{
+    clientX: number;
+    clientY: number;
+  } | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [renderZoom, setRenderZoom] = useState(zoom);
+  const [snapshotVisible, setSnapshotVisible] = useState(false);
   const [failedPage, setFailedPage] = useState<{
     fileUrl: string;
     page: number;
@@ -469,6 +479,15 @@ export default function PdfReader({
   const [hoverSelection, setHoverSelection] = useState<ReaderSelection | null>(
     null,
   );
+  const pdfOptions = useMemo(
+    () => ({
+      cMapUrl: "/pdfjs/cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl: "/pdfjs/standard_fonts/",
+      wasmUrl: "/pdfjs/wasm/",
+    }),
+    [],
+  );
   const hasError = failedPage?.fileUrl === fileUrl && failedPage.page === page;
   const currentPageSize =
     pageSize?.fileUrl === fileUrl && pageSize.page === page ? pageSize : null;
@@ -476,8 +495,29 @@ export default function PdfReader({
     ? currentPageSize.width / currentPageSize.height
     : 1 / Math.SQRT2;
   const fittedWidth = Math.min(viewport.width, viewport.height * aspectRatio);
-  const renderWidth = Math.max(1, Math.floor(fittedWidth * zoom));
+  const targetWidth = Math.max(1, Math.floor(fittedWidth * zoom));
+  const targetHeight = Math.max(1, Math.floor(targetWidth / aspectRatio));
+  const renderWidth = Math.max(1, Math.floor(fittedWidth * renderZoom));
   const renderHeight = Math.max(1, Math.floor(renderWidth / aspectRatio));
+  const renderScale = targetWidth / renderWidth;
+  const auraMode: ReaderAuraMode =
+    voiceState === "listening" ||
+    voiceState === "inspecting" ||
+    voiceState === "speaking"
+      ? voiceState
+      : "idle";
+
+  const stopAutoScroll = useCallback(() => {
+    autoScrollPointerRef.current = null;
+    if (autoScrollFrameRef.current === null) return;
+    window.cancelAnimationFrame(autoScrollFrameRef.current);
+    autoScrollFrameRef.current = null;
+  }, []);
+
+  const hideZoomSnapshot = useCallback(() => {
+    snapshotVisibleRef.current = false;
+    setSnapshotVisible(false);
+  }, []);
 
   useEffect(() => {
     const finishModifierSweep = (event: KeyboardEvent) => {
@@ -485,19 +525,22 @@ export default function PdfReader({
       modifierActiveRef.current = false;
       modifierSelectionRef.current = null;
       sweptSentenceKeysRef.current.clear();
+      stopAutoScroll();
     };
     const finishOnBlur = () => {
       modifierActiveRef.current = false;
       modifierSelectionRef.current = null;
       sweptSentenceKeysRef.current.clear();
+      stopAutoScroll();
     };
     window.addEventListener("keyup", finishModifierSweep);
     window.addEventListener("blur", finishOnBlur);
     return () => {
       window.removeEventListener("keyup", finishModifierSweep);
       window.removeEventListener("blur", finishOnBlur);
+      stopAutoScroll();
     };
-  }, []);
+  }, [stopAutoScroll]);
 
   const locatePassage = useCallback((passage: string) => {
     const pageNode = pageRef.current;
@@ -533,17 +576,21 @@ export default function PdfReader({
   const loadError = useCallback(() => {
     setFailedPage({ fileUrl, page });
     renderedPageRef.current = null;
+    hideZoomSnapshot();
     onVisibleTextChange("");
-  }, [fileUrl, onVisibleTextChange, page]);
+  }, [fileUrl, hideZoomSnapshot, onVisibleTextChange, page]);
 
   const handlePageRender = useCallback(() => {
     renderedPageRef.current = page;
-  }, [page]);
+    hideZoomSnapshot();
+  }, [hideZoomSnapshot, page]);
 
   const capturePageImage = useCallback<ReaderControls["capturePageImage"]>(
     ({ markPointer }) => {
       if (renderedPageRef.current !== page) return null;
-      const canvas = pageRef.current?.querySelector("canvas");
+      const canvas = pageRef.current?.querySelector<HTMLCanvasElement>(
+        "[data-pdf-render-layer] canvas",
+      );
       if (!canvas) return null;
       try {
         const pointer = livePointerRef.current;
@@ -566,7 +613,32 @@ export default function PdfReader({
 
   useEffect(() => {
     renderedPageRef.current = null;
-  }, [fileUrl, page]);
+    stopAutoScroll();
+    const frame = window.requestAnimationFrame(hideZoomSnapshot);
+    return () => window.cancelAnimationFrame(frame);
+  }, [fileUrl, hideZoomSnapshot, page, stopAutoScroll]);
+
+  useEffect(() => {
+    if (zoom === renderZoom) return;
+    const timeout = window.setTimeout(() => {
+      const source = pageRef.current?.querySelector<HTMLCanvasElement>(
+        "[data-pdf-render-layer] canvas",
+      );
+      const snapshot = zoomSnapshotRef.current;
+      if (source && snapshot && !snapshotVisibleRef.current) {
+        const context = snapshot.getContext("2d", { alpha: false });
+        if (context && source.width > 0 && source.height > 0) {
+          snapshot.width = source.width;
+          snapshot.height = source.height;
+          context.drawImage(source, 0, 0);
+          snapshotVisibleRef.current = true;
+          setSnapshotVisible(true);
+        }
+      }
+      setRenderZoom(zoom);
+    }, 160);
+    return () => window.clearTimeout(timeout);
+  }, [renderZoom, zoom]);
 
   const handlePageLoad = useCallback<
     NonNullable<ComponentProps<typeof Page>["onLoadSuccess"]>
@@ -618,12 +690,113 @@ export default function PdfReader({
     setHoverSelection(null);
     onPointerChange(null);
     setTextLayerPage(page);
-  }, [onPointerChange, page]);
+    stopAutoScroll();
+  }, [onPointerChange, page, stopAutoScroll]);
+
+  const updatePointerAtPoint = useCallback(
+    (clientX: number, clientY: number, modifierPressed: boolean) => {
+      const pageNode = pageRef.current;
+      if (!pageNode) return;
+      const rect = pageNode.getBoundingClientRect();
+      const element = document.elementFromPoint(clientX, clientY);
+      const candidate = element?.closest<HTMLElement>(
+        ".react-pdf__Page__textContent span",
+      );
+      const span = candidate && pageNode.contains(candidate) ? candidate : null;
+      const hit = span
+        ? sentenceAtPoint(
+            pageNode,
+            textLayerModelRef.current,
+            span,
+            clientX,
+            clientY,
+          )
+        : null;
+      livePointerRef.current = {
+        x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
+        y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height)),
+        text: hit?.selection.text.slice(0, 320) || undefined,
+      };
+
+      if (modifierPressed) {
+        if (!modifierActiveRef.current) {
+          modifierActiveRef.current = true;
+          modifierSelectionRef.current =
+            activeFocus?.id === "current-selection" ? activeFocus : null;
+          sweptSentenceKeysRef.current.clear();
+        }
+        if (hit && !sweptSentenceKeysRef.current.has(hit.key)) {
+          sweptSentenceKeysRef.current.add(hit.key);
+          const nextSelection = mergeSelections(
+            modifierSelectionRef.current,
+            hit.selection,
+          );
+          modifierSelectionRef.current = nextSelection;
+          onSelectionChange(nextSelection);
+        }
+      } else if (modifierActiveRef.current) {
+        modifierActiveRef.current = false;
+        modifierSelectionRef.current = null;
+        sweptSentenceKeysRef.current.clear();
+      }
+
+      if (hit?.key === hoveredSentenceKeyRef.current) return;
+      hoveredSentenceKeyRef.current = hit?.key ?? null;
+      setHoverSelection(hit?.selection ?? null);
+      onPointerChange(livePointerRef.current);
+    },
+    [activeFocus, onPointerChange, onSelectionChange],
+  );
+
+  const startAutoScroll = useCallback(
+    (clientX: number, clientY: number) => {
+      autoScrollPointerRef.current = { clientX, clientY };
+      if (autoScrollFrameRef.current !== null) return;
+
+      const tick = () => {
+        const pointerPosition = autoScrollPointerRef.current;
+        const viewportNode = pageRef.current?.closest<HTMLElement>(
+          "[data-reader-viewport]",
+        );
+        if (!pointerPosition || !viewportNode || !modifierActiveRef.current) {
+          autoScrollFrameRef.current = null;
+          return;
+        }
+
+        const viewportRect = viewportNode.getBoundingClientRect();
+        const velocity = edgeAutoScrollVelocity(
+          pointerPosition.clientY,
+          viewportRect.top,
+          viewportRect.height,
+        );
+        if (velocity === 0) {
+          autoScrollFrameRef.current = null;
+          return;
+        }
+
+        const previousScrollTop = viewportNode.scrollTop;
+        viewportNode.scrollTop += velocity;
+        if (viewportNode.scrollTop === previousScrollTop) {
+          autoScrollFrameRef.current = null;
+          return;
+        }
+        updatePointerAtPoint(
+          pointerPosition.clientX,
+          pointerPosition.clientY,
+          true,
+        );
+        autoScrollFrameRef.current = window.requestAnimationFrame(tick);
+      };
+
+      autoScrollFrameRef.current = window.requestAnimationFrame(tick);
+    },
+    [updatePointerAtPoint],
+  );
 
   if (hasError)
     return (
       <div
-        style={{ width: renderWidth, height: renderHeight }}
+        style={{ width: targetWidth, height: targetHeight }}
         className="grid place-items-center bg-reader-paper p-8"
       >
         <div className="max-w-sm text-center">
@@ -651,55 +824,27 @@ export default function PdfReader({
   return (
     <div
       ref={pageRef}
+      style={{ width: targetWidth, height: targetHeight }}
       className="relative mx-auto w-fit select-none overflow-hidden bg-card shadow-float"
       onMouseMove={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        const element = document.elementFromPoint(event.clientX, event.clientY);
-        const span = element?.closest<HTMLElement>(
-          ".react-pdf__Page__textContent span",
-        );
-        const hit = span
-          ? sentenceAtPoint(
-              event.currentTarget,
-              textLayerModelRef.current,
-              span,
-              event.clientX,
-              event.clientY,
-            )
-          : null;
         const modifierPressed = event.metaKey || event.ctrlKey;
-        livePointerRef.current = {
-          x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
-          y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
-          text: hit?.selection.text.slice(0, 320) || undefined,
-        };
-
+        updatePointerAtPoint(event.clientX, event.clientY, modifierPressed);
         if (modifierPressed) {
-          if (!modifierActiveRef.current) {
-            modifierActiveRef.current = true;
-            modifierSelectionRef.current =
-              activeFocus?.id === "current-selection" ? activeFocus : null;
-            sweptSentenceKeysRef.current.clear();
-          }
-          if (hit && !sweptSentenceKeysRef.current.has(hit.key)) {
-            sweptSentenceKeysRef.current.add(hit.key);
-            const nextSelection = mergeSelections(
-              modifierSelectionRef.current,
-              hit.selection,
-            );
-            modifierSelectionRef.current = nextSelection;
-            onSelectionChange(nextSelection);
-          }
-        } else if (modifierActiveRef.current) {
-          modifierActiveRef.current = false;
-          modifierSelectionRef.current = null;
-          sweptSentenceKeysRef.current.clear();
+          startAutoScroll(event.clientX, event.clientY);
+        } else {
+          stopAutoScroll();
         }
-
-        if (hit?.key === hoveredSentenceKeyRef.current) return;
-        hoveredSentenceKeyRef.current = hit?.key ?? null;
-        setHoverSelection(hit?.selection ?? null);
-        onPointerChange(livePointerRef.current);
+      }}
+      onMouseDown={(event) => {
+        if (event.metaKey || event.ctrlKey) event.preventDefault();
+      }}
+      onClick={(event) => {
+        if (event.metaKey || event.ctrlKey) return;
+        if (activeFocus?.id !== "current-selection") return;
+        onSelectionChange(null);
+        hoveredSentenceKeyRef.current = null;
+        setHoverSelection(null);
+        window.getSelection()?.removeAllRanges();
       }}
       onMouseLeave={() => {
         livePointerRef.current = null;
@@ -707,40 +852,57 @@ export default function PdfReader({
         modifierActiveRef.current = false;
         modifierSelectionRef.current = null;
         sweptSentenceKeysRef.current.clear();
+        stopAutoScroll();
         setHoverSelection(null);
         onPointerChange(null);
       }}
     >
-      <Document
-        key={attempt}
-        file={fileUrl}
-        options={pdfOptions}
-        loading={
-          <div
-            style={{ width: renderWidth, height: renderHeight }}
-            className="grid place-items-center bg-reader-paper"
-          >
-            <LoaderCircle className="size-5 animate-spin text-coral" />
-          </div>
-        }
-        onLoadSuccess={({ numPages }) => {
-          setFailedPage(null);
-          onDocumentReady(numPages);
+      <div
+        data-pdf-render-layer="true"
+        className="absolute left-0 top-0 origin-top-left"
+        style={{
+          width: renderWidth,
+          height: renderHeight,
+          transform: `scale(${renderScale})`,
         }}
-        onLoadError={loadError}
-        onSourceError={loadError}
       >
-        <Page
-          pageNumber={page}
-          width={renderWidth}
-          renderAnnotationLayer={false}
-          onLoadSuccess={handlePageLoad}
-          onRenderError={loadError}
-          onRenderSuccess={handlePageRender}
-          onGetTextSuccess={handleTextSuccess}
-          onRenderTextLayerSuccess={handleTextLayerRender}
-        />
-      </Document>
+        <Document
+          key={attempt}
+          file={fileUrl}
+          options={pdfOptions}
+          loading={
+            <div
+              style={{ width: renderWidth, height: renderHeight }}
+              className="grid place-items-center bg-reader-paper"
+            >
+              <LoaderCircle className="size-5 animate-spin text-coral" />
+            </div>
+          }
+          onLoadSuccess={({ numPages }) => {
+            setFailedPage(null);
+            onDocumentReady(numPages);
+          }}
+          onLoadError={loadError}
+          onSourceError={loadError}
+        >
+          <Page
+            pageNumber={page}
+            width={renderWidth}
+            renderAnnotationLayer={false}
+            onLoadSuccess={handlePageLoad}
+            onRenderError={loadError}
+            onRenderSuccess={handlePageRender}
+            onGetTextSuccess={handleTextSuccess}
+            onRenderTextLayerSuccess={handleTextLayerRender}
+          />
+        </Document>
+      </div>
+      <canvas
+        ref={zoomSnapshotRef}
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-0 z-[3] size-full transition-opacity duration-100 ${snapshotVisible ? "opacity-100" : "opacity-0"}`}
+      />
+      <ReadingAura mode={auraMode} />
       <HighlightLayer
         highlights={highlights}
         hoverSelection={hoverSelection}

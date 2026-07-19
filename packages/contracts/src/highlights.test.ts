@@ -21,4 +21,15 @@ describe("highlight contracts", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("supports a dense full-page selection", () => {
+    const rect = { x: 0.1, y: 0.2, width: 0.45, height: 0.03 };
+    expect(
+      createHighlightInputSchema.safeParse({
+        ...input,
+        text: "A ".repeat(8_000),
+        rects: Array.from({ length: 512 }, () => rect),
+      }).success,
+    ).toBe(true);
+  });
 });

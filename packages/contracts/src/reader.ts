@@ -71,5 +71,6 @@ export type VoiceState =
   | "idle"
   | "connecting"
   | "listening"
+  | "inspecting"
   | "speaking"
   | "error";

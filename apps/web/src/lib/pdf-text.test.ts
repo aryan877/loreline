@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { findMatchingTextRunRange, sentenceTextRanges } from "./pdf-text";
+import {
+  edgeAutoScrollVelocity,
+  findMatchingTextRunRange,
+  sentenceTextRanges,
+} from "./pdf-text";
+
+describe("edgeAutoScrollVelocity", () => {
+  it("scrolls toward the nearest viewport edge and rests in the middle", () => {
+    expect(edgeAutoScrollVelocity(110, 100, 800)).toBeLessThan(0);
+    expect(edgeAutoScrollVelocity(500, 100, 800)).toBe(0);
+    expect(edgeAutoScrollVelocity(890, 100, 800)).toBeGreaterThan(0);
+  });
+});
 
 describe("sentenceTextRanges", () => {
   it("keeps sentence boundaries across PDF text-run whitespace", () => {
@@ -30,10 +42,7 @@ describe("findMatchingTextRunRange", () => {
 
   it("matches across adjacent PDF text runs", () => {
     expect(
-      findMatchingTextRunRange(
-        runs,
-        "across a page. It is the quieter art",
-      ),
+      findMatchingTextRunRange(runs, "across a page. It is the quieter art"),
     ).toEqual({ start: 0, end: 1 });
   });
 
@@ -45,7 +54,8 @@ describe("findMatchingTextRunRange", () => {
   });
 
   it("returns null when the passage is absent", () => {
-    expect(findMatchingTextRunRange(runs, "A completely different claim"))
-      .toBeNull();
+    expect(
+      findMatchingTextRunRange(runs, "A completely different claim"),
+    ).toBeNull();
   });
 });
