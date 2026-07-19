@@ -243,12 +243,27 @@
 @keyframes pdf-state-glow-breathe {
   0%,
   100% {
-    opacity: 0.3;
-    transform: scale(0.98);
+    opacity: var(--reader-aura-opacity-low, 0.44);
+    transform: scale(0.96);
   }
   50% {
-    opacity: 0.56;
-    transform: scale(1.025);
+    opacity: var(--reader-aura-opacity-high, 0.76);
+    transform: scale(1.04);
+  }
+}
+
+@keyframes pdf-inspection-glow-pulse {
+  0% {
+    opacity: 0.34;
+    transform: scale(0.68);
+  }
+  55% {
+    opacity: 0.92;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 0.18;
+    transform: scale(1.42);
   }
 }
 
@@ -306,6 +321,8 @@
 
 .pdf-reading-aura[data-reading-aura="listening"]
   .pdf-reading-aura__state-glow {
+  --reader-aura-opacity-low: 0.4;
+  --reader-aura-opacity-high: 0.66;
   background:
     radial-gradient(
       ellipse at 6% 86%,
@@ -322,6 +339,8 @@
 
 .pdf-reading-aura[data-reading-aura="thinking"]
   .pdf-reading-aura__state-glow {
+  --reader-aura-opacity-low: 0.46;
+  --reader-aura-opacity-high: 0.76;
   background:
     radial-gradient(
       ellipse at 20% 12%,
@@ -339,6 +358,8 @@
 
 .pdf-reading-aura[data-reading-aura="inspecting"]
   .pdf-reading-aura__state-glow {
+  --reader-aura-opacity-low: 0.52;
+  --reader-aura-opacity-high: 0.86;
   background: radial-gradient(
     circle at 50% 50%,
     color-mix(in oklab, var(--primary) 38%, transparent),
@@ -351,6 +372,8 @@
 
 .pdf-reading-aura[data-reading-aura="speaking"]
   .pdf-reading-aura__state-glow {
+  --reader-aura-opacity-low: 0.5;
+  --reader-aura-opacity-high: 0.82;
   background:
     radial-gradient(
       ellipse at 12% 18%,
@@ -377,26 +400,32 @@
 
 .pdf-reading-aura__inspection-glow {
   position: absolute;
-  width: 6.5rem;
-  height: 6.5rem;
+  width: 12rem;
+  height: 12rem;
   border-radius: 999px;
   background: radial-gradient(
     circle,
-    color-mix(in oklab, var(--coral) 42%, transparent),
-    color-mix(in oklab, var(--coral) 16%, transparent) 32%,
-    transparent 70%
+    color-mix(in oklab, var(--coral) 64%, transparent),
+    color-mix(in oklab, var(--gold) 34%, transparent) 28%,
+    color-mix(in oklab, var(--coral) 14%, transparent) 52%,
+    transparent 74%
   );
-  filter: blur(7px);
+  filter: blur(10px);
   mix-blend-mode: multiply;
+  will-change: transform, opacity;
+  animation: pdf-inspection-glow-pulse 1.25s
+    cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
 .pdf-reading-aura__inspection-dot {
   position: absolute;
-  width: 0.58rem;
-  height: 0.58rem;
+  width: 0.72rem;
+  height: 0.72rem;
   border-radius: 999px;
   background: var(--coral);
-  box-shadow: 0 0 22px color-mix(in oklab, var(--coral) 72%, transparent);
+  box-shadow:
+    0 0 18px color-mix(in oklab, var(--coral) 88%, transparent),
+    0 0 42px color-mix(in oklab, var(--gold) 58%, transparent);
 }
 
 .pdf-reading-aura__inspection-label {

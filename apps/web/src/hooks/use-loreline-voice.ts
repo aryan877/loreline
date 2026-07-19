@@ -180,9 +180,9 @@ function pageInstructions(
     "# Tools",
     "Use only the tools currently provided. The reader-facing page tools are read-only and low risk: call them proactively when their conditions are met without asking for confirmation. Never pretend a tool ran. Only say an action succeeded after its result confirms success.",
     "## prepare_reader_response — REQUIRED PRIVATE DECISION",
-    "Every completed user voice turn begins with a forced prepare_reader_response call before audio can be produced. This is an intent decision, not a requirement to manipulate the page. Choose conversation for ordinary conversation or a follow-up that does not depend on visible page content. Choose keep_focus when answering a follow-up about the already focused passage; preserve that highlight without moving, recapturing, or flashing the page. Choose focus only when teaching, quoting, interpreting, summarizing, or narrating a new visible passage. Choose inspect_pointer or inspect_page only when pixels or spatial layout are genuinely needed, such as a picture, diagram, page design, or a reference to this, here, or under the cursor. Never take a screenshot merely because a response has no exact passage.",
+    "Every completed user voice turn begins with a forced prepare_reader_response call before audio can be produced. This is an intent decision, not a requirement to manipulate the page. Choose conversation for ordinary conversation or a follow-up that does not depend on visible page content. Choose keep_focus when answering a follow-up about the already focused passage; preserve that highlight without moving, recapturing, or flashing the page. Choose focus only when teaching, quoting, interpreting, summarizing, or narrating a new visible passage. Choose inspect_pointer or inspect_page only when pixels or spatial layout are genuinely needed, such as a picture, diagram, page design, an explicit request to look at or screenshot the page, or a reference to this, here, or under the cursor. Never take a screenshot merely because a response has no exact passage.",
     "## Page-material decisions",
-    "The preparation function is the single path for focusing text or inspecting page pixels. For focus, supply one short contiguous verbatim quote of roughly 8–30 words and wait for its result before explaining. For inspection, wait for the attached image before describing pixels. Do not retry a failed preparation with another mode and do not substitute inspection for a failed focus.",
+    "The preparation function is the single path for focusing text or inspecting page pixels. It is also your direct screenshot capability: inspect_pointer and inspect_page make the host browser capture the rendered PDF and attach that image to this conversation. Never claim that you cannot take or inspect a screenshot before choosing the appropriate inspection mode and reading its result. Docker does not limit this capability because capture occurs in the reader's browser. For focus, supply one short contiguous verbatim quote of roughly 8–30 words and wait for its result before explaining. For inspection, wait for the attached image before describing pixels. Do not retry a failed preparation with another mode and do not substitute inspection for a failed focus.",
     "## Other tools",
     "Call search_book only when the live page, selection, and an on-demand page inspection are genuinely insufficient. Use save_highlight_note for a persistent note linked to PDF text. Use place_note only for a temporary sideboard thought. Use place_visual when an image, scene, analogy, map, or diagram would materially improve understanding. Use turn_page only after an explicit spoken navigation request.",
     "# Tool Failures",
@@ -291,8 +291,8 @@ export function useLorelineVoice(
         try {
           session.addImage(capture.dataUrl, { triggerResponse: false });
           return scope === "pointer"
-            ? `Attached the compressed full page ${capture.page} with the cursor visibly marked at ${pointerSummary}. Use the annotated image, the extracted pointer text when present, and the live page text together.`
-            : `Attached a compressed full-page image for page ${capture.page}${capture.pointer ? ` with the live cursor visibly marked at ${pointerSummary}` : ", with no cursor currently on the PDF"}. Use that image and the live page text to answer.`;
+            ? `Screenshot captured and attached for page ${capture.page}, with the cursor visibly marked at ${pointerSummary}. You can inspect this image directly. Use the annotated image, the extracted pointer text when present, and the live page text together.`
+            : `Screenshot captured and attached for page ${capture.page}${capture.pointer ? ` with the live cursor visibly marked at ${pointerSummary}` : ", with no cursor currently on the PDF"}. You can inspect this image directly. Use it with the live page text to answer.`;
         } catch (cause) {
           console.error(
             "Loreline could not attach the requested page image",
@@ -301,15 +301,20 @@ export function useLorelineVoice(
           return `Page inspection failed on page ${capture.page} because the visual snapshot could not be attached.`;
         }
       } finally {
-        if (sessionRef.current?.transport.status === "connected")
-          updateState("thinking");
+        window.setTimeout(() => {
+          if (
+            stateRef.current === "inspecting" &&
+            sessionRef.current?.transport.status === "connected"
+          )
+            updateState("thinking");
+        }, 1_100);
       }
     };
 
     const prepareReaderResponse = tool({
       name: "prepare_reader_response",
       description:
-        "Mandatory private intent decision before each voice response. It may deliberately take no page action. Use conversation for a normal conversational response, keep_focus for a follow-up about the passage already highlighted, focus for a new passage, and inspection only for a genuinely visual question.",
+        "Mandatory private intent decision before each voice response. It may deliberately take no page action. This is also the model's direct screenshot tool: inspect_pointer and inspect_page make the host browser capture the rendered PDF and attach the image for vision. Use conversation for a normal conversational response, keep_focus for a follow-up about the passage already highlighted, focus for a new passage, and inspection for a visual question or an explicit request to look at or screenshot the page.",
       parameters: z.object({
         mode: z.enum([
           "conversation",
@@ -317,9 +322,20 @@ export function useLorelineVoice(
           "focus",
           "inspect_pointer",
           "inspect_page",
-        ]),
-        page: z.number().int().positive(),
-        text: z.string().trim().max(2000).optional(),
+        ]).describe(
+          "The model-decided page action. inspect_pointer and inspect_page capture and attach a real screenshot from the host browser.",
+        ),
+        page: z
+          .number()
+          .int()
+          .positive()
+          .describe("The current or target PDF page number."),
+        text: z
+          .string()
+          .trim()
+          .max(2000)
+          .optional()
+          .describe("Required only for focus: a short exact PDF quote."),
       }),
       execute: async ({ mode, page, text }) => {
         const current = contextRef.current;
@@ -518,7 +534,13 @@ export function useLorelineVoice(
   );
 
   const connect = useCallback(() => {
-    if (sessionRef.current) return Promise.resolve(sessionRef.current);
+    const existingSession = sessionRef.current;
+    if (existingSession?.transport.status === "connected")
+      return Promise.resolve(existingSession);
+    if (existingSession) {
+      existingSession.close();
+      sessionRef.current = null;
+    }
     if (connectionRef.current) return connectionRef.current;
 
     const connectionEpoch = ++connectionEpochRef.current;
@@ -609,7 +631,11 @@ export function useLorelineVoice(
               toolStartedAtRef.current.delete(callId);
             }
             if (action === "prepare_reader_response") {
-              if (stateRef.current !== "speaking") updateState("thinking");
+              if (
+                stateRef.current !== "speaking" &&
+                stateRef.current !== "inspecting"
+              )
+                updateState("thinking");
               return;
             }
             publishActivity(
@@ -666,6 +692,8 @@ export function useLorelineVoice(
             activeSession.transport.status === "connected"
           )
             return;
+          sessionRef.current = null;
+          activeSession.close();
           const connectionError = new UserFacingError(
             "The voice connection was interrupted. Please reconnect.",
           );
@@ -720,7 +748,7 @@ export function useLorelineVoice(
 
   useEffect(() => {
     const session = sessionRef.current;
-    if (!session) return;
+    if (!session || session.transport.status !== "connected") return;
     const timeout = window.setTimeout(() => {
       void session.updateAgent(buildAgent()).catch((cause) => {
         console.error(
