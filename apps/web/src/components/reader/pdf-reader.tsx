@@ -334,6 +334,69 @@ function sentenceAtPoint(
   return { key: sentence.key, selection };
 }
 
+function entryIndexForBoundary(entries: TextSpanEntry[], node: Node) {
+  return entries.findIndex(
+    (entry) => entry.node === node || entry.span.contains(node),
+  );
+}
+
+function boundaryOffsetInEntry(
+  entry: TextSpanEntry,
+  container: Node,
+  offset: number,
+  fallback: number,
+) {
+  if (container === entry.node)
+    return Math.max(0, Math.min(entry.node.length, offset));
+  if (container === entry.span) {
+    const textNodeIndex = Array.from(entry.span.childNodes).indexOf(entry.node);
+    return offset <= textNodeIndex ? 0 : entry.node.length;
+  }
+  if (!entry.span.contains(container)) return fallback;
+  try {
+    const prefix = document.createRange();
+    prefix.setStart(entry.node, 0);
+    prefix.setEnd(container, offset);
+    return Math.max(0, Math.min(entry.node.length, prefix.toString().length));
+  } catch {
+    return fallback;
+  }
+}
+
+function textFromNativeRange(model: TextLayerModel, range: Range) {
+  const startIndex = entryIndexForBoundary(
+    model.entries,
+    range.startContainer,
+  );
+  const endIndex = entryIndexForBoundary(model.entries, range.endContainer);
+  if (startIndex < 0 || endIndex < startIndex) return range.toString();
+
+  return model.entries
+    .slice(startIndex, endIndex + 1)
+    .map((entry, index, selectedEntries) => {
+      const startOffset =
+        index === 0
+          ? boundaryOffsetInEntry(
+              entry,
+              range.startContainer,
+              range.startOffset,
+              0,
+            )
+          : 0;
+      const endOffset =
+        index === selectedEntries.length - 1
+          ? boundaryOffsetInEntry(
+              entry,
+              range.endContainer,
+              range.endOffset,
+              entry.node.length,
+            )
+          : entry.node.length;
+      return entry.node.data.slice(startOffset, endOffset);
+    })
+    .join(" ");
+}
+
 function selectionFromNativeRange(
   pageNode: HTMLElement,
   model: TextLayerModel | null,
@@ -346,7 +409,7 @@ function selectionFromNativeRange(
     !pageNode.contains(range.endContainer)
   )
     return null;
-  const text = range.toString().replace(/\s+/g, " ").trim();
+  const text = textFromNativeRange(model, range).replace(/\s+/g, " ").trim();
   if (!text) return null;
   const rects = normalizedRects(
     Array.from(range.getClientRects()),

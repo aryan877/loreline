@@ -204,12 +204,16 @@ function ConfirmationDialog({
 function SavedHighlightCard({
   highlight,
   isCurrentPage,
+  open,
+  onToggle,
   onOpen,
   onUpdate,
   onDelete,
 }: {
   highlight: Highlight;
   isCurrentPage: boolean;
+  open: boolean;
+  onToggle: () => void;
   onOpen: () => void;
   onUpdate: (note: string | null) => Promise<void>;
   onDelete: () => void;
@@ -218,63 +222,89 @@ function SavedHighlightCard({
 
   const changed = note.trim() !== (highlight.note ?? "");
   return (
-    <article className="grid h-[24rem] w-[min(32rem,calc(var(--workspace-width)-3.5rem))] max-w-[calc(100vw-5rem)] shrink-0 snap-start grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-2xl border bg-card shadow-sm">
-      <div className="flex items-start gap-3 border-b px-3.5 py-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-reader-highlight/60 text-[0.64rem] font-semibold text-foreground">
+    <article className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex w-full items-start gap-3 px-3 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-reader-highlight/60 text-xs font-semibold text-foreground">
           {highlight.page}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
-            {isCurrentPage ? "This page" : `Page ${highlight.page}`}
+          <span className="flex items-center gap-2">
+            <span className="text-[0.62rem] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
+              {isCurrentPage ? "This page" : `Page ${highlight.page}`}
+            </span>
+            {highlight.note && (
+              <span className="rounded-full bg-sage-soft px-1.5 py-0.5 text-[0.56rem] font-semibold uppercase tracking-wide text-foreground">
+                Note
+              </span>
+            )}
           </span>
-          <span className="mt-0.5 block truncate text-xs font-semibold text-foreground">
-            {highlight.note ? "Note and highlight" : "Saved highlight"}
+          <span className="mt-1 line-clamp-2 block break-words text-xs leading-relaxed text-ink-soft">
+            {highlight.note || highlight.text}
           </span>
         </span>
-      </div>
-      <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_7rem] gap-3 bg-paper/55 p-3.5">
-        <p className="scrollbar-none min-h-0 overflow-y-auto whitespace-pre-wrap break-words pr-1 text-xs leading-relaxed text-ink-soft [overflow-wrap:anywhere]">
-          “{highlight.text}”
-        </p>
-        <Textarea
-          aria-label={`Note for highlight on page ${highlight.page}`}
-          value={note}
-          onChange={(event) => setNote(event.target.value.slice(0, 4000))}
-          placeholder="Add a note to this passage…"
-          rows={4}
-          className="field-sizing-fixed h-28 min-h-0 max-h-28 w-full max-w-full resize-none overflow-y-auto bg-background text-xs"
+        <ChevronDown
+          className={cn(
+            "mt-1 size-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
         />
-      </div>
-      <div className="grid grid-cols-2 items-center gap-1.5 border-t bg-card p-2.5">
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={`Delete highlight on page ${highlight.page}`}
-          onClick={onDelete}
-        >
-          <Trash2 />
-          Remove
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="min-w-0"
-          onClick={onOpen}
-        >
-          Show on page
-        </Button>
-        <Button
-          size="sm"
-          className="col-span-2 w-full"
-          disabled={!changed}
-          onClick={() => void onUpdate(note.trim() || null)}
-        >
-          Save note
-        </Button>
-      </div>
+      </button>
+
+      {open && (
+        <div className="border-t bg-paper/45">
+          <div className="space-y-3 px-3 py-3.5">
+            <blockquote className="max-h-32 overflow-y-auto border-l-2 border-reader-highlight pl-3 text-xs leading-relaxed text-ink-soft">
+              “{highlight.text}”
+            </blockquote>
+            <Textarea
+              aria-label={`Note for highlight on page ${highlight.page}`}
+              value={note}
+              onChange={(event) => setNote(event.target.value.slice(0, 4000))}
+              placeholder="Add a note to this passage…"
+              rows={4}
+              className="field-sizing-fixed h-28 min-h-0 max-h-28 w-full resize-none overflow-y-auto bg-background text-xs"
+            />
+          </div>
+          <div className="flex items-center gap-1.5 border-t bg-card px-2.5 py-2">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Delete highlight on page ${highlight.page}`}
+                    onClick={onDelete}
+                  />
+                }
+              >
+                <Trash2 />
+              </TooltipTrigger>
+              <TooltipContent>Remove passage</TooltipContent>
+            </Tooltip>
+            <span className="flex-1" />
+            <Button variant="outline" size="sm" onClick={onOpen}>
+              Show on page
+            </Button>
+            <Button
+              size="sm"
+              disabled={!changed}
+              onClick={() => void onUpdate(note.trim() || null)}
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+      )}
     </article>
   );
 }
+
+type WorkspaceMode = "board" | "notes";
 
 type SideboardProps = {
   book: ReaderBook;
@@ -286,7 +316,11 @@ type SideboardProps = {
   setItems: React.Dispatch<React.SetStateAction<BoardItem[]>>;
   highlights: Highlight[];
   bookmarks: SavedBookmark[];
+  mode: WorkspaceMode;
+  openHighlightId: string | null;
   readerControls: ReaderControls;
+  onModeChange: (mode: WorkspaceMode) => void;
+  onOpenHighlightEditor: (highlightId: string | null) => void;
   onOpenHighlight: (highlight: Highlight) => void;
   onUpdateHighlight: (
     highlightId: string,
@@ -308,7 +342,11 @@ function Sideboard({
   setItems,
   highlights,
   bookmarks,
+  mode,
+  openHighlightId,
   readerControls,
+  onModeChange,
+  onOpenHighlightEditor,
   onOpenHighlight,
   onUpdateHighlight,
   onDeleteHighlight,
@@ -316,13 +354,14 @@ function Sideboard({
   onDeleteBookmark,
   onVoiceStateChange,
 }: SideboardProps) {
-  const [notesOpen, setNotesOpen] = useState(true);
   const [deleteRequest, setDeleteRequest] =
     useState<ConfirmationRequest | null>(null);
-  const notesRailRef = useRef<HTMLDivElement>(null);
   const addBoardItem = useCallback(
-    (item: BoardItem) => setItems((current) => [...current, item]),
-    [setItems],
+    (item: BoardItem) => {
+      setItems((current) => [...current, item]);
+      onModeChange("board");
+    },
+    [onModeChange, setItems],
   );
   const voiceContext = useMemo(
     () => ({
@@ -361,8 +400,6 @@ function Sideboard({
           : voice.state === "listening"
             ? "Listening"
             : "Start voice";
-  const hasWorkspaceContent =
-    items.length > 0 || highlights.length > 0 || bookmarks.length > 0;
   const orderedHighlights = useMemo(
     () =>
       [...highlights].sort((left, right) => {
@@ -376,262 +413,292 @@ function Sideboard({
 
   return (
     <aside className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-l bg-card">
-      <div className="min-w-0 border-b px-4 py-3.5">
+      <div className="min-w-0 border-b bg-card px-4 pt-3.5">
         <div className="min-w-0">
           <p className="text-sm font-semibold">Workspace</p>
           <p className="truncate text-[0.7rem] text-muted-foreground">
-            Board, notes, and page {page}
+            {mode === "board"
+              ? `Thinking board for page ${page}`
+              : "Highlights, notes, and saved pages"}
           </p>
+        </div>
+        <div className="mt-3 flex gap-5" role="tablist" aria-label="Workspace">
+          <button
+            type="button"
+            id="workspace-board-tab"
+            role="tab"
+            aria-selected={mode === "board"}
+            aria-controls="workspace-board-panel"
+            onClick={() => onModeChange("board")}
+            className={cn(
+              "flex items-center gap-1.5 border-b-2 pb-2.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+              mode === "board"
+                ? "border-coral text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            Board
+            {items.length > 0 && (
+              <span className="text-[0.62rem] text-muted-foreground">
+                {items.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            id="workspace-notes-tab"
+            role="tab"
+            aria-selected={mode === "notes"}
+            aria-controls="workspace-notes-panel"
+            onClick={() => onModeChange("notes")}
+            className={cn(
+              "flex items-center gap-1.5 border-b-2 pb-2.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+              mode === "notes"
+                ? "border-coral text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            Notes
+            {highlights.length + bookmarks.length > 0 && (
+              <span className="text-[0.62rem] text-muted-foreground">
+                {highlights.length + bookmarks.length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
       <ScrollArea className="min-h-0 min-w-0 flex-1 bg-paper/45">
-        <div className="dot-grid min-h-full min-w-0 space-y-6 p-4">
-          {!hasWorkspaceContent && (
-            <div className="dot-grid flex min-h-64 flex-col items-center justify-center rounded-2xl border bg-paper px-6 text-center">
-              <span className="grid size-11 place-items-center rounded-xl bg-card shadow-sm">
-                <Sparkles className="size-5 text-coral" />
-              </span>
-              <p className="mt-4 font-display text-2xl">Your thinking space</p>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                Speak to Loreline to explain, map, draw, or save an idea. The
-                results stay here beside the page.
-              </p>
-            </div>
-          )}
-
-          {items.length > 0 && (
-            <section>
-              <p className="mb-2 font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
-                On the board
-              </p>
-              <div className="space-y-3">
-                <AnimatePresence initial={false}>
-                  {items.map((item) => (
-                    <motion.article
-                      layout
-                      key={item.id}
-                      initial={{ opacity: 0, scale: 0.96, y: 8 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.96 }}
-                      className={cn(
-                        "group relative overflow-hidden rounded-2xl border",
-                        item.kind === "note" && {
-                          "bg-paper": item.tone === "paper",
-                          "bg-sage-soft/55": item.tone === "sage",
-                          "bg-sky-soft/55": item.tone === "sky",
-                          "bg-coral-soft/55": item.tone === "coral",
-                        },
-                      )}
-                    >
-                      <button
-                        aria-label="Remove board item"
-                        onClick={() =>
-                          setDeleteRequest({
-                            title: "Remove this board item?",
-                            description: `“${item.title}” will be removed from this workspace.`,
-                            confirmLabel: "Remove item",
-                            confirm: async () => {
-                              setItems((current) =>
-                                current.filter(
-                                  (candidate) => candidate.id !== item.id,
-                                ),
-                              );
-                            },
-                          })
-                        }
-                        className="absolute right-2 top-2 z-10 grid size-7 place-items-center rounded-full bg-background/80 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+        {mode === "board" ? (
+          <div
+            id="workspace-board-panel"
+            role="tabpanel"
+            aria-labelledby="workspace-board-tab"
+            className="dot-grid min-h-full min-w-0 p-4"
+          >
+            {items.length === 0 ? (
+              <div className="flex min-h-[28rem] flex-col items-center justify-center px-7 text-center">
+                <span className="grid size-11 place-items-center rounded-xl border bg-card shadow-sm">
+                  <Sparkles className="size-5 text-coral" />
+                </span>
+                <p className="mt-4 font-display text-2xl">Your thinking space</p>
+                <p className="mt-2 max-w-64 text-xs leading-relaxed text-muted-foreground">
+                  Ask Loreline to explain, map, or draw an idea. Visuals and
+                  pinned thoughts get the whole board.
+                </p>
+              </div>
+            ) : (
+              <section>
+                <p className="mb-2 font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
+                  On the board
+                </p>
+                <div className="space-y-3">
+                  <AnimatePresence initial={false}>
+                    {items.map((item) => (
+                      <motion.article
+                        layout
+                        key={item.id}
+                        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.96 }}
+                        className={cn(
+                          "group relative overflow-hidden rounded-2xl border",
+                          item.kind === "note" && {
+                            "bg-paper": item.tone === "paper",
+                            "bg-sage-soft/55": item.tone === "sage",
+                            "bg-sky-soft/55": item.tone === "sky",
+                            "bg-coral-soft/55": item.tone === "coral",
+                          },
+                        )}
                       >
-                        <X className="size-3.5" />
-                      </button>
-                      {item.kind === "image" ? (
-                        <>
-                          <Image
-                            src={item.url}
-                            alt={item.title}
-                            width={1024}
-                            height={1024}
-                            unoptimized
-                            className="aspect-square w-full object-cover"
-                          />
-                          <div className="p-3">
-                            <p className="font-display text-lg font-semibold">
-                              {item.title}
+                        <button
+                          aria-label="Remove board item"
+                          onClick={() =>
+                            setDeleteRequest({
+                              title: "Remove this board item?",
+                              description: `“${item.title}” will be removed from this workspace.`,
+                              confirmLabel: "Remove item",
+                              confirm: async () => {
+                                setItems((current) =>
+                                  current.filter(
+                                    (candidate) => candidate.id !== item.id,
+                                  ),
+                                );
+                              },
+                            })
+                          }
+                          className="absolute right-2 top-2 z-10 grid size-7 place-items-center rounded-full bg-background/80 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                        {item.kind === "image" ? (
+                          <>
+                            <Image
+                              src={item.url}
+                              alt={item.title}
+                              width={1024}
+                              height={1024}
+                              unoptimized
+                              className="aspect-square w-full object-cover"
+                            />
+                            <div className="p-3">
+                              <p className="font-display text-lg font-semibold">
+                                {item.title}
+                              </p>
+                              <p className="mt-1 line-clamp-2 text-[0.67rem] leading-relaxed text-muted-foreground">
+                                {item.prompt}
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="p-4">
+                            <p className="font-mono text-[0.6rem] uppercase tracking-[0.16em] text-muted-foreground">
+                              Pinned thought
                             </p>
-                            <p className="mt-1 line-clamp-2 text-[0.67rem] leading-relaxed text-muted-foreground">
-                              {item.prompt}
+                            <h3 className="mt-3 font-display text-xl font-semibold">
+                              {item.title}
+                            </h3>
+                            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">
+                              {item.body}
                             </p>
                           </div>
-                        </>
-                      ) : (
-                        <div className="p-4">
-                          <p className="font-mono text-[0.6rem] uppercase tracking-[0.16em] text-muted-foreground">
-                            Pinned thought
-                          </p>
-                          <h3 className="mt-3 font-display text-xl font-semibold">
-                            {item.title}
-                          </h3>
-                          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">
-                            {item.body}
-                          </p>
-                        </div>
-                      )}
-                    </motion.article>
-                  ))}
-                </AnimatePresence>
-              </div>
-            </section>
-          )}
-
-          {bookmarks.length > 0 && (
-            <section>
-              <p className="mb-2 font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
-                Bookmarks
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {bookmarks.map((bookmark) => (
-                  <span
-                    key={bookmark.id}
-                    className="inline-flex items-center rounded-full border bg-card shadow-sm"
-                  >
-                    <button
-                      className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-1 text-xs font-medium"
-                      onClick={() => onOpenBookmark(bookmark.page)}
-                    >
-                      <BookmarkCheck className="size-3.5 text-coral" />
-                      Page {bookmark.page}
-                    </button>
-                    <button
-                      aria-label={`Delete bookmark on page ${bookmark.page}`}
-                      className="grid size-7 place-items-center rounded-full text-muted-foreground hover:text-foreground"
-                      onClick={() =>
-                        setDeleteRequest({
-                          title: "Remove this bookmark?",
-                          description: `Page ${bookmark.page} will no longer be bookmarked.`,
-                          confirmLabel: "Remove bookmark",
-                          confirm: () => onDeleteBookmark(bookmark.id),
-                        })
-                      }
-                    >
-                      <X className="size-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {orderedHighlights.length > 0 && (
-            <section className="overflow-hidden rounded-2xl border bg-card/90 shadow-sm">
-              <button
-                type="button"
-                aria-expanded={notesOpen}
-                aria-controls="saved-notes-panel"
-                onClick={() => setNotesOpen((open) => !open)}
-                className="flex w-full items-center gap-3 px-3.5 py-3 text-left outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              >
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-reader-highlight/55">
-                  <StickyNote className="size-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold">
-                    Saved notes
-                  </span>
-                  <span className="block text-[0.66rem] text-muted-foreground">
-                    {orderedHighlights.length} saved passage
-                    {orderedHighlights.length === 1 ? "" : "s"}
-                  </span>
-                </span>
-                <ChevronDown
-                  className={cn(
-                    "size-4 shrink-0 text-muted-foreground transition-transform",
-                    notesOpen && "rotate-180",
-                  )}
-                />
-              </button>
-              {notesOpen && (
-                <div id="saved-notes-panel" className="border-t bg-paper/55">
-                  <div className="flex items-center justify-between gap-3 px-3.5 pt-3">
-                    <p className="text-[0.68rem] text-muted-foreground">
-                      Browse saved notes
-                    </p>
-                    {orderedHighlights.length > 1 && (
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label="Previous saved note"
-                          onClick={() =>
-                            notesRailRef.current?.scrollBy({
-                              left: -304,
-                              behavior: "smooth",
-                            })
-                          }
-                        >
-                          <ChevronLeft />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label="Next saved note"
-                          onClick={() =>
-                            notesRailRef.current?.scrollBy({
-                              left: 304,
-                              behavior: "smooth",
-                            })
-                          }
-                        >
-                          <ChevronRight />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  <div
-                    ref={notesRailRef}
-                    className="scrollbar-none flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain px-3.5 pb-3.5 pt-2 scroll-smooth touch-pan-x"
-                  >
-                    {orderedHighlights.map((highlight) => (
-                      <SavedHighlightCard
-                        key={highlight.id}
-                        highlight={highlight}
-                        isCurrentPage={highlight.page === page}
-                        onOpen={() => onOpenHighlight(highlight)}
-                        onUpdate={(note) =>
-                          onUpdateHighlight(highlight.id, note)
-                        }
-                        onDelete={() =>
-                          setDeleteRequest({
-                            title: highlight.note
-                              ? "Remove this saved note?"
-                              : "Remove this highlight?",
-                            description: highlight.note
-                              ? "The highlight and its attached note will be permanently removed."
-                              : "This saved highlight will be permanently removed.",
-                            confirmLabel: highlight.note
-                              ? "Remove note"
-                              : "Remove highlight",
-                            confirm: () => onDeleteHighlight(highlight.id),
-                          })
-                        }
-                      />
+                        )}
+                      </motion.article>
                     ))}
-                  </div>
+                  </AnimatePresence>
                 </div>
-              )}
-            </section>
-          )}
-        </div>
+              </section>
+            )}
+          </div>
+        ) : (
+          <div
+            id="workspace-notes-panel"
+            role="tabpanel"
+            aria-labelledby="workspace-notes-tab"
+            className="dot-grid min-h-full min-w-0 space-y-5 p-4"
+          >
+            {bookmarks.length === 0 && orderedHighlights.length === 0 ? (
+              <div className="flex min-h-[28rem] flex-col items-center justify-center px-7 text-center">
+                <span className="grid size-11 place-items-center rounded-xl border bg-card shadow-sm">
+                  <StickyNote className="size-5 text-coral" />
+                </span>
+                <p className="mt-4 font-display text-2xl">Nothing saved yet</p>
+                <p className="mt-2 max-w-64 text-xs leading-relaxed text-muted-foreground">
+                  Select a passage to highlight it or attach a note. It will
+                  stay here without crowding the board.
+                </p>
+              </div>
+            ) : (
+              <>
+                {bookmarks.length > 0 && (
+                  <section>
+                    <div className="mb-2 flex items-baseline justify-between gap-3">
+                      <p className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
+                        Saved pages
+                      </p>
+                      <span className="text-[0.62rem] text-muted-foreground">
+                        {bookmarks.length}
+                      </span>
+                    </div>
+                    <div className="scrollbar-none flex gap-2 overflow-x-auto pb-1">
+                      {bookmarks.map((bookmark) => (
+                        <span
+                          key={bookmark.id}
+                          className="inline-flex shrink-0 items-center rounded-full border bg-card shadow-sm"
+                        >
+                          <button
+                            className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-1 text-xs font-medium"
+                            onClick={() => onOpenBookmark(bookmark.page)}
+                          >
+                            <BookmarkCheck className="size-3.5 text-coral" />
+                            Page {bookmark.page}
+                          </button>
+                          <button
+                            aria-label={`Delete bookmark on page ${bookmark.page}`}
+                            className="grid size-7 place-items-center rounded-full text-muted-foreground hover:text-foreground"
+                            onClick={() =>
+                              setDeleteRequest({
+                                title: "Remove this bookmark?",
+                                description: `Page ${bookmark.page} will no longer be bookmarked.`,
+                                confirmLabel: "Remove bookmark",
+                                confirm: () => onDeleteBookmark(bookmark.id),
+                              })
+                            }
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {orderedHighlights.length > 0 && (
+                  <section>
+                    <div className="mb-2 flex items-baseline justify-between gap-3">
+                      <p className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
+                        Saved passages
+                      </p>
+                      <span className="text-[0.62rem] text-muted-foreground">
+                        {orderedHighlights.length}
+                      </span>
+                    </div>
+                    <div className="space-y-2.5">
+                      {orderedHighlights.map((highlight) => (
+                        <SavedHighlightCard
+                          key={highlight.id}
+                          highlight={highlight}
+                          isCurrentPage={highlight.page === page}
+                          open={openHighlightId === highlight.id}
+                          onToggle={() =>
+                            onOpenHighlightEditor(
+                              openHighlightId === highlight.id
+                                ? null
+                                : highlight.id,
+                            )
+                          }
+                          onOpen={() => onOpenHighlight(highlight)}
+                          onUpdate={(note) =>
+                            onUpdateHighlight(highlight.id, note)
+                          }
+                          onDelete={() =>
+                            setDeleteRequest({
+                              title: highlight.note
+                                ? "Remove this saved note?"
+                                : "Remove this highlight?",
+                              description: highlight.note
+                                ? "The highlight and its attached note will be permanently removed."
+                                : "This saved highlight will be permanently removed.",
+                              confirmLabel: highlight.note
+                                ? "Remove note"
+                                : "Remove highlight",
+                              confirm: async () => {
+                                await onDeleteHighlight(highlight.id);
+                                if (openHighlightId === highlight.id)
+                                  onOpenHighlightEditor(null);
+                              },
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </ScrollArea>
 
-      <div className="space-y-2.5 border-t bg-background/75 p-3 backdrop-blur-xl">
+      <div className="space-y-2 border-t bg-background/75 px-3 py-2.5 backdrop-blur-xl">
         <button
           type="button"
           onClick={voice.connected ? voice.disconnect : voice.connect}
           className={cn(
-            "flex w-full items-center gap-3 rounded-2xl border p-2.5 text-left shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "flex w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             voice.connected
-              ? "border-coral/45 bg-coral-soft/50"
-              : "bg-card hover:bg-muted/55",
+              ? "bg-coral-soft/50"
+              : "hover:bg-muted/55",
           )}
         >
           <VoiceOrb state={voice.state} />
@@ -726,6 +793,9 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   } | null>(null);
   const [visibleText, setVisibleText] = useState("");
   const [boardItems, setBoardItems] = useState<BoardItem[]>([]);
+  const [workspaceMode, setWorkspaceMode] =
+    useState<WorkspaceMode>("board");
+  const [openHighlightId, setOpenHighlightId] = useState<string | null>(null);
   const pageCaptureRef = useRef<ReaderControls["capturePageImage"]>(() => null);
   const setPageCapture = useCallback(
     (capture: ReaderControls["capturePageImage"] | null) => {
@@ -1002,7 +1072,13 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     }) => {
       const located = await focusPassage({ page: targetPage, text });
       if (!located) return false;
-      await createHighlightMutation.mutateAsync({ ...located, note });
+      const created = await createHighlightMutation.mutateAsync({
+        ...located,
+        note,
+      });
+      setSideboardOpen(true);
+      setWorkspaceMode("notes");
+      setOpenHighlightId(created.id);
       return true;
     },
     [createHighlightMutation, focusPassage],
@@ -1049,7 +1125,13 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
 
   const saveSelection = useCallback(
     async (selected: ReaderSelection, note: string | null) => {
-      await createHighlightMutation.mutateAsync({ ...selected, note });
+      const created = await createHighlightMutation.mutateAsync({
+        ...selected,
+        note,
+      });
+      setSideboardOpen(true);
+      setWorkspaceMode("notes");
+      setOpenHighlightId(created.id);
       clearSelection();
       setNoteSelection(null);
       setNoteDraft("");
@@ -1071,7 +1153,11 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
       setItems={setBoardItems}
       highlights={highlights}
       bookmarks={bookmarks}
+      mode={workspaceMode}
+      openHighlightId={openHighlightId}
       readerControls={readerControls}
+      onModeChange={setWorkspaceMode}
+      onOpenHighlightEditor={setOpenHighlightId}
       onOpenHighlight={(highlight) => {
         go(highlight.page);
         setActiveFocus({ ...highlight, id: highlight.id });
@@ -1281,6 +1367,8 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
               <Button
                 size="sm"
                 onClick={() => {
+                  setSideboardOpen(true);
+                  setWorkspaceMode("notes");
                   setNoteSelection(selection);
                   setNoteDraft("");
                 }}
