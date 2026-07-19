@@ -25,11 +25,7 @@ import type {
 } from "@loreline/contracts/reader";
 import { Button } from "@/components/ui/button";
 import { ReadingAura, type ReaderAuraMode } from "./reading-aura";
-import {
-  edgeAutoScrollVelocity,
-  findMatchingTextRunRange,
-  sentenceTextRanges,
-} from "@/lib/pdf-text";
+import { findMatchingTextRunRange, sentenceTextRanges } from "@/lib/pdf-text";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -121,9 +117,9 @@ type PdfReaderProps = {
   zoom: number;
   voiceState: VoiceState;
   highlights: Highlight[];
+  selection: ReaderSelection | null;
   activeFocus: ReaderFocus | null;
   focusRequest: ReaderFocusRequest | null;
-  pointer: PointerContext;
   onDocumentReady: (pages: number) => void;
   onVisibleTextChange: (text: string) => void;
   onPageCaptureReady: (
@@ -193,41 +189,6 @@ function normalizedRects(
       width: Number(rect.width.toFixed(6)),
       height: Number(rect.height.toFixed(6)),
     }));
-}
-
-function mergeSelections(
-  base: ReaderSelection | null,
-  addition: ReaderSelection | null,
-): ReaderSelection | null {
-  if (!base) return addition;
-  if (!addition || addition.page !== base.page) return base;
-  const alreadyIncluded = addition.rects.every((rect) =>
-    base.rects.some(
-      (candidate) =>
-        Math.abs(candidate.x - rect.x) < 0.0001 &&
-        Math.abs(candidate.y - rect.y) < 0.0001 &&
-        Math.abs(candidate.width - rect.width) < 0.0001 &&
-        Math.abs(candidate.height - rect.height) < 0.0001,
-    ),
-  );
-  if (alreadyIncluded) return base;
-  const rects = [...base.rects, ...addition.rects]
-    .filter(
-      (rect, index, all) =>
-        all.findIndex(
-          (candidate) =>
-            Math.abs(candidate.x - rect.x) < 0.0001 &&
-            Math.abs(candidate.y - rect.y) < 0.0001 &&
-            Math.abs(candidate.width - rect.width) < 0.0001 &&
-            Math.abs(candidate.height - rect.height) < 0.0001,
-        ) === index,
-    )
-    .sort((left, right) => left.y - right.y || left.x - right.x);
-  return {
-    page: base.page,
-    text: `${base.text}\n${addition.text}`.trim(),
-    rects,
-  };
 }
 
 type TextSpanEntry = {
@@ -373,14 +334,36 @@ function sentenceAtPoint(
   return { key: sentence.key, selection };
 }
 
+function selectionFromNativeRange(
+  pageNode: HTMLElement,
+  model: TextLayerModel | null,
+  range: Range,
+): ReaderSelection | null {
+  if (
+    !model ||
+    range.collapsed ||
+    !pageNode.contains(range.startContainer) ||
+    !pageNode.contains(range.endContainer)
+  )
+    return null;
+  const text = range.toString().replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  const rects = normalizedRects(
+    Array.from(range.getClientRects()),
+    pageNode.getBoundingClientRect(),
+  );
+  if (!rects.length) return null;
+  return { page: model.page, text, rects };
+}
+
 function HighlightLayer({
   highlights,
+  selection,
   activeFocus,
-  hoverSelection,
 }: {
   highlights: Highlight[];
+  selection: ReaderSelection | null;
   activeFocus: ReaderFocus | null;
-  hoverSelection: ReaderSelection | null;
 }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-10" aria-hidden>
@@ -398,14 +381,10 @@ function HighlightLayer({
           />
         )),
       )}
-      {activeFocus?.rects.map((rect, index) => (
+      {selection?.rects.map((rect, index) => (
         <span
-          key={`${activeFocus.id}-${index}`}
-          className={
-            activeFocus.id === "current-selection"
-              ? "absolute rounded-[0.16rem] bg-reader-highlight/55 mix-blend-multiply"
-              : "absolute animate-pulse rounded-[0.16rem] bg-coral/30 ring-1 ring-coral/55 mix-blend-multiply"
-          }
+          key={`current-selection-${index}`}
+          className="absolute rounded-[0.16rem] bg-reader-highlight opacity-[0.38]"
           style={{
             left: `${rect.x * 100}%`,
             top: `${rect.y * 100}%`,
@@ -414,10 +393,10 @@ function HighlightLayer({
           }}
         />
       ))}
-      {hoverSelection?.rects.map((rect, index) => (
+      {activeFocus?.rects.map((rect, index) => (
         <span
-          key={`hover-sentence-${index}`}
-          className="absolute rounded-[0.16rem] bg-reader-highlight/30 mix-blend-multiply"
+          key={`${activeFocus.id}-${index}`}
+          className="absolute animate-pulse rounded-[0.16rem] bg-coral/30 ring-1 ring-coral/55 mix-blend-multiply"
           style={{
             left: `${rect.x * 100}%`,
             top: `${rect.y * 100}%`,
@@ -437,9 +416,9 @@ export default function PdfReader({
   zoom,
   voiceState,
   highlights,
+  selection,
   activeFocus,
   focusRequest,
-  pointer,
   onDocumentReady,
   onVisibleTextChange,
   onPageCaptureReady,
@@ -454,17 +433,15 @@ export default function PdfReader({
   const livePointerRef = useRef<PointerContext>(null);
   const textLayerModelRef = useRef<TextLayerModel | null>(null);
   const hoveredSentenceKeyRef = useRef<string | null>(null);
-  const modifierActiveRef = useRef(false);
-  const modifierSelectionRef = useRef<ReaderSelection | null>(null);
-  const sweptSentenceKeysRef = useRef(new Set<string>());
-  const autoScrollFrameRef = useRef<number | null>(null);
-  const autoScrollPointerRef = useRef<{
-    clientX: number;
-    clientY: number;
-  } | null>(null);
+  const nativeSelectionActiveRef = useRef(false);
+  const selectionFrameRef = useRef<number | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [renderZoom, setRenderZoom] = useState(zoom);
   const [snapshotVisible, setSnapshotVisible] = useState(false);
+  const [liveSelection, setLiveSelection] = useState<ReaderSelection | null>(
+    null,
+  );
+  const [selectionGestureActive, setSelectionGestureActive] = useState(false);
   const [failedPage, setFailedPage] = useState<{
     fileUrl: string;
     page: number;
@@ -476,9 +453,6 @@ export default function PdfReader({
     width: number;
     height: number;
   } | null>(null);
-  const [hoverSelection, setHoverSelection] = useState<ReaderSelection | null>(
-    null,
-  );
   const pdfOptions = useMemo(
     () => ({
       cMapUrl: "/pdfjs/cmaps/",
@@ -507,40 +481,10 @@ export default function PdfReader({
       ? voiceState
       : "idle";
 
-  const stopAutoScroll = useCallback(() => {
-    autoScrollPointerRef.current = null;
-    if (autoScrollFrameRef.current === null) return;
-    window.cancelAnimationFrame(autoScrollFrameRef.current);
-    autoScrollFrameRef.current = null;
-  }, []);
-
   const hideZoomSnapshot = useCallback(() => {
     snapshotVisibleRef.current = false;
     setSnapshotVisible(false);
   }, []);
-
-  useEffect(() => {
-    const finishModifierSweep = (event: KeyboardEvent) => {
-      if (event.key !== "Meta" && event.key !== "Control") return;
-      modifierActiveRef.current = false;
-      modifierSelectionRef.current = null;
-      sweptSentenceKeysRef.current.clear();
-      stopAutoScroll();
-    };
-    const finishOnBlur = () => {
-      modifierActiveRef.current = false;
-      modifierSelectionRef.current = null;
-      sweptSentenceKeysRef.current.clear();
-      stopAutoScroll();
-    };
-    window.addEventListener("keyup", finishModifierSweep);
-    window.addEventListener("blur", finishOnBlur);
-    return () => {
-      window.removeEventListener("keyup", finishModifierSweep);
-      window.removeEventListener("blur", finishOnBlur);
-      stopAutoScroll();
-    };
-  }, [stopAutoScroll]);
 
   const locatePassage = useCallback((passage: string) => {
     const pageNode = pageRef.current;
@@ -613,10 +557,15 @@ export default function PdfReader({
 
   useEffect(() => {
     renderedPageRef.current = null;
-    stopAutoScroll();
-    const frame = window.requestAnimationFrame(hideZoomSnapshot);
+    nativeSelectionActiveRef.current = false;
+    window.getSelection()?.removeAllRanges();
+    const frame = window.requestAnimationFrame(() => {
+      setLiveSelection(null);
+      setSelectionGestureActive(false);
+      hideZoomSnapshot();
+    });
     return () => window.cancelAnimationFrame(frame);
-  }, [fileUrl, hideZoomSnapshot, page, stopAutoScroll]);
+  }, [fileUrl, hideZoomSnapshot, page]);
 
   useEffect(() => {
     if (zoom === renderZoom) return;
@@ -684,17 +633,78 @@ export default function PdfReader({
       : null;
     livePointerRef.current = null;
     hoveredSentenceKeyRef.current = null;
-    modifierActiveRef.current = false;
-    modifierSelectionRef.current = null;
-    sweptSentenceKeysRef.current.clear();
-    setHoverSelection(null);
+    nativeSelectionActiveRef.current = false;
+    setLiveSelection(null);
+    setSelectionGestureActive(false);
     onPointerChange(null);
     setTextLayerPage(page);
-    stopAutoScroll();
-  }, [onPointerChange, page, stopAutoScroll]);
+  }, [onPointerChange, page]);
+
+  useEffect(() => {
+    const readNativeSelection = () => {
+      if (!nativeSelectionActiveRef.current) return;
+      if (selectionFrameRef.current !== null) return;
+      selectionFrameRef.current = window.requestAnimationFrame(() => {
+        selectionFrameRef.current = null;
+        const pageNode = pageRef.current;
+        const nativeSelection = window.getSelection();
+        if (!pageNode || !nativeSelection || nativeSelection.rangeCount === 0) {
+          setLiveSelection(null);
+          return;
+        }
+        setLiveSelection(
+          selectionFromNativeRange(
+            pageNode,
+            textLayerModelRef.current,
+            nativeSelection.getRangeAt(0),
+          ),
+        );
+      });
+    };
+    document.addEventListener("selectionchange", readNativeSelection);
+    return () => {
+      document.removeEventListener("selectionchange", readNativeSelection);
+      if (selectionFrameRef.current !== null)
+        window.cancelAnimationFrame(selectionFrameRef.current);
+      selectionFrameRef.current = null;
+    };
+  }, []);
+
+  const finishNativeSelection = useCallback(() => {
+    if (!nativeSelectionActiveRef.current) return;
+    nativeSelectionActiveRef.current = false;
+    setSelectionGestureActive(false);
+    const pageNode = pageRef.current;
+    const nativeSelection = window.getSelection();
+    if (!pageNode || !nativeSelection || nativeSelection.rangeCount === 0) {
+      onSelectionChange(null);
+      return;
+    }
+    const nextSelection = selectionFromNativeRange(
+      pageNode,
+      textLayerModelRef.current,
+      nativeSelection.getRangeAt(0),
+    );
+    setLiveSelection(nextSelection);
+    onPointerChange(livePointerRef.current);
+    onSelectionChange(nextSelection);
+  }, [onPointerChange, onSelectionChange]);
+
+  useEffect(() => {
+    const cancelNativeSelection = () => {
+      nativeSelectionActiveRef.current = false;
+      setSelectionGestureActive(false);
+    };
+    window.addEventListener("mouseup", finishNativeSelection);
+    window.addEventListener("blur", cancelNativeSelection);
+    return () => {
+      window.removeEventListener("mouseup", finishNativeSelection);
+      window.removeEventListener("blur", cancelNativeSelection);
+    };
+  }, [finishNativeSelection]);
 
   const updatePointerAtPoint = useCallback(
-    (clientX: number, clientY: number, modifierPressed: boolean) => {
+    (clientX: number, clientY: number) => {
       const pageNode = pageRef.current;
       if (!pageNode) return;
       const rect = pageNode.getBoundingClientRect();
@@ -703,94 +713,28 @@ export default function PdfReader({
         ".react-pdf__Page__textContent span",
       );
       const span = candidate && pageNode.contains(candidate) ? candidate : null;
-      const hit = span
-        ? sentenceAtPoint(
-            pageNode,
-            textLayerModelRef.current,
-            span,
-            clientX,
-            clientY,
-          )
-        : null;
+      const hit =
+        span && !nativeSelectionActiveRef.current
+          ? sentenceAtPoint(
+              pageNode,
+              textLayerModelRef.current,
+              span,
+              clientX,
+              clientY,
+            )
+          : null;
       livePointerRef.current = {
         x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
         y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height)),
         text: hit?.selection.text.slice(0, 320) || undefined,
       };
 
-      if (modifierPressed) {
-        if (!modifierActiveRef.current) {
-          modifierActiveRef.current = true;
-          modifierSelectionRef.current =
-            activeFocus?.id === "current-selection" ? activeFocus : null;
-          sweptSentenceKeysRef.current.clear();
-        }
-        if (hit && !sweptSentenceKeysRef.current.has(hit.key)) {
-          sweptSentenceKeysRef.current.add(hit.key);
-          const nextSelection = mergeSelections(
-            modifierSelectionRef.current,
-            hit.selection,
-          );
-          modifierSelectionRef.current = nextSelection;
-          onSelectionChange(nextSelection);
-        }
-      } else if (modifierActiveRef.current) {
-        modifierActiveRef.current = false;
-        modifierSelectionRef.current = null;
-        sweptSentenceKeysRef.current.clear();
-      }
-
+      if (nativeSelectionActiveRef.current) return;
       if (hit?.key === hoveredSentenceKeyRef.current) return;
       hoveredSentenceKeyRef.current = hit?.key ?? null;
-      setHoverSelection(hit?.selection ?? null);
       onPointerChange(livePointerRef.current);
     },
-    [activeFocus, onPointerChange, onSelectionChange],
-  );
-
-  const startAutoScroll = useCallback(
-    (clientX: number, clientY: number) => {
-      autoScrollPointerRef.current = { clientX, clientY };
-      if (autoScrollFrameRef.current !== null) return;
-
-      const tick = () => {
-        const pointerPosition = autoScrollPointerRef.current;
-        const viewportNode = pageRef.current?.closest<HTMLElement>(
-          "[data-reader-viewport]",
-        );
-        if (!pointerPosition || !viewportNode || !modifierActiveRef.current) {
-          autoScrollFrameRef.current = null;
-          return;
-        }
-
-        const viewportRect = viewportNode.getBoundingClientRect();
-        const velocity = edgeAutoScrollVelocity(
-          pointerPosition.clientY,
-          viewportRect.top,
-          viewportRect.height,
-        );
-        if (velocity === 0) {
-          autoScrollFrameRef.current = null;
-          return;
-        }
-
-        const previousScrollTop = viewportNode.scrollTop;
-        viewportNode.scrollTop += velocity;
-        if (viewportNode.scrollTop === previousScrollTop) {
-          autoScrollFrameRef.current = null;
-          return;
-        }
-        updatePointerAtPoint(
-          pointerPosition.clientX,
-          pointerPosition.clientY,
-          true,
-        );
-        autoScrollFrameRef.current = window.requestAnimationFrame(tick);
-      };
-
-      autoScrollFrameRef.current = window.requestAnimationFrame(tick);
-    },
-    [updatePointerAtPoint],
+    [onPointerChange],
   );
 
   if (hasError)
@@ -825,35 +769,20 @@ export default function PdfReader({
     <div
       ref={pageRef}
       style={{ width: targetWidth, height: targetHeight }}
-      className="relative mx-auto w-fit select-none overflow-hidden bg-card shadow-float"
-      onMouseMove={(event) => {
-        const modifierPressed = event.metaKey || event.ctrlKey;
-        updatePointerAtPoint(event.clientX, event.clientY, modifierPressed);
-        if (modifierPressed) {
-          startAutoScroll(event.clientX, event.clientY);
-        } else {
-          stopAutoScroll();
-        }
-      }}
+      className="relative mx-auto w-fit cursor-text select-text overflow-hidden bg-card shadow-float"
+      onMouseMove={(event) =>
+        updatePointerAtPoint(event.clientX, event.clientY)
+      }
       onMouseDown={(event) => {
-        if (event.metaKey || event.ctrlKey) event.preventDefault();
-      }}
-      onClick={(event) => {
-        if (event.metaKey || event.ctrlKey) return;
-        if (activeFocus?.id !== "current-selection") return;
+        if (event.button !== 0) return;
+        nativeSelectionActiveRef.current = true;
+        setLiveSelection(null);
+        setSelectionGestureActive(true);
         onSelectionChange(null);
-        hoveredSentenceKeyRef.current = null;
-        setHoverSelection(null);
-        window.getSelection()?.removeAllRanges();
       }}
       onMouseLeave={() => {
         livePointerRef.current = null;
         hoveredSentenceKeyRef.current = null;
-        modifierActiveRef.current = false;
-        modifierSelectionRef.current = null;
-        sweptSentenceKeysRef.current.clear();
-        stopAutoScroll();
-        setHoverSelection(null);
         onPointerChange(null);
       }}
     >
@@ -905,19 +834,9 @@ export default function PdfReader({
       <ReadingAura mode={auraMode} />
       <HighlightLayer
         highlights={highlights}
-        hoverSelection={hoverSelection}
+        selection={selectionGestureActive ? liveSelection : selection}
         activeFocus={activeFocus}
       />
-      {pointer && (
-        <div
-          className="pointer-events-none absolute z-20"
-          style={{ left: `${pointer.x * 100}%`, top: `${pointer.y * 100}%` }}
-        >
-          <span className="absolute left-1 top-1 whitespace-nowrap rounded-full bg-primary px-2 py-0.5 text-[0.6rem] font-semibold text-primary-foreground shadow-sm">
-            You&apos;re here
-          </span>
-        </div>
-      )}
     </div>
   );
 }

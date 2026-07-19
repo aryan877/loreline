@@ -1059,9 +1059,6 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
 
   const currentBookmark = bookmarks.find((item) => item.page === page);
   const pageHighlights = highlights.filter((item) => item.page === page);
-  const displayedFocus: ReaderFocus | null = selection
-    ? { id: "current-selection", ...selection }
-    : activeFocus;
 
   const sideboard = (
     <Sideboard
@@ -1250,9 +1247,9 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
               zoom={zoom}
               voiceState={voiceState}
               highlights={pageHighlights}
-              activeFocus={displayedFocus}
+              selection={selection}
+              activeFocus={activeFocus}
               focusRequest={focusRequest}
-              pointer={pointer}
               onDocumentReady={(pages) => {
                 setNumPages(pages);
                 if (page > pages) setPage(pages);
@@ -1270,8 +1267,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
           {selection && (
             <div className="absolute inset-x-3 bottom-4 z-30 mx-auto flex max-w-xl items-center gap-2 rounded-2xl border bg-background/95 p-2 pl-3 shadow-float backdrop-blur-xl">
               <p className="min-w-0 flex-1 text-xs font-medium text-ink-soft">
-                {selection.text.split(/\s+/).length} words · Hold Cmd/Ctrl and
-                move to add
+                {selection.text.split(/\s+/).length} words selected
               </p>
               <Button
                 variant="secondary"

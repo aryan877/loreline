@@ -1,17 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  edgeAutoScrollVelocity,
-  findMatchingTextRunRange,
-  sentenceTextRanges,
-} from "./pdf-text";
-
-describe("edgeAutoScrollVelocity", () => {
-  it("scrolls toward the nearest viewport edge and rests in the middle", () => {
-    expect(edgeAutoScrollVelocity(110, 100, 800)).toBeLessThan(0);
-    expect(edgeAutoScrollVelocity(500, 100, 800)).toBe(0);
-    expect(edgeAutoScrollVelocity(890, 100, 800)).toBeGreaterThan(0);
-  });
-});
+import { findMatchingTextRunRange, sentenceTextRanges } from "./pdf-text";
 
 describe("sentenceTextRanges", () => {
   it("keeps sentence boundaries across PDF text-run whitespace", () => {

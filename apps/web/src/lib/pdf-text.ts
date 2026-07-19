@@ -5,30 +5,6 @@ export type SentenceTextRange = {
   text: string;
 };
 
-export function edgeAutoScrollVelocity(
-  pointerY: number,
-  viewportTop: number,
-  viewportHeight: number,
-) {
-  const edgeSize = Math.min(96, Math.max(48, viewportHeight * 0.12));
-  const viewportBottom = viewportTop + viewportHeight;
-  const topStrength = Math.min(
-    1,
-    Math.max(0, (viewportTop + edgeSize - pointerY) / edgeSize),
-  );
-  if (topStrength > 0)
-    return -Math.max(2, Math.round(20 * topStrength * topStrength));
-
-  const bottomStrength = Math.min(
-    1,
-    Math.max(0, (pointerY - (viewportBottom - edgeSize)) / edgeSize),
-  );
-  if (bottomStrength > 0)
-    return Math.max(2, Math.round(20 * bottomStrength * bottomStrength));
-
-  return 0;
-}
-
 export function sentenceTextRanges(text: string): SentenceTextRange[] {
   const segmenter = new Intl.Segmenter(undefined, {
     granularity: "sentence",

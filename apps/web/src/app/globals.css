@@ -444,7 +444,7 @@
 .react-pdf__Page__textContent {
   user-select: text;
 }
-.react-pdf__Page__textContent ::selection {
-  background: transparent;
-  color: transparent;
+.react-pdf__Page__textContent :is(span, br)::selection {
+  background-color: transparent !important;
+  color: transparent !important;
 }
