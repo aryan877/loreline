@@ -7,6 +7,11 @@
 <p align="center"><strong>Read the PDF. Talk to the page. Keep your thinking beside it.</strong></p>
 
 <p align="center">
+  <a href="https://loreline.aryankumar.dev"><strong>Open the live demo →</strong></a><br />
+  Built by team <strong>ContextWindow</strong> for the <strong>OpenAI × NamasteDev Hackathon</strong>.
+</p>
+
+<p align="center">
   Loreline turns a static book into a live reading workspace. The PDF stays in front of you while GPT Realtime 2.1 can inspect the page, search the whole book, focus the exact passage it is discussing, and help you leave behind useful notes, bookmarks, and visual explanations.
 </p>
 
