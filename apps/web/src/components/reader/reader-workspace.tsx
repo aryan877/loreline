@@ -1141,6 +1141,12 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     [cancelPendingFocus, go, numPages, page],
   );
 
+  const clearFocus = useCallback(() => {
+    cancelPendingFocus();
+    setFocusRequest(null);
+    setActiveFocus(null);
+  }, [cancelPendingFocus]);
+
   const savePassageNote = useCallback(
     async ({
       page: targetPage,
@@ -1167,6 +1173,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
 
   const readerControls = useMemo<ReaderControls>(
     () => ({
+      clearFocus,
       focusPassage,
       savePassageNote,
       capturePageImage: (focus) => pageCaptureRef.current(focus),
@@ -1176,7 +1183,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
         return true;
       },
     }),
-    [focusPassage, go, numPages, savePassageNote],
+    [clearFocus, focusPassage, go, numPages, savePassageNote],
   );
 
   useEffect(() => cancelPendingFocus, [cancelPendingFocus]);

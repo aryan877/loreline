@@ -180,7 +180,7 @@ function pageInstructions(
     "# Tools",
     "Use only the tools currently provided. The reader-facing page tools are read-only and low risk: call them proactively when their conditions are met without asking for confirmation. Never pretend a tool ran. Only say an action succeeded after its result confirms success.",
     "## prepare_reader_response — REQUIRED PRIVATE DECISION",
-    "Every completed user voice turn begins with a forced prepare_reader_response call before audio can be produced. This is an intent decision, not a requirement to manipulate the page. Choose conversation for ordinary conversation or a follow-up that does not depend on visible page content. Choose keep_focus when answering a follow-up about the already focused passage; preserve that highlight without moving, recapturing, or flashing the page. Choose focus only when teaching, quoting, interpreting, summarizing, or narrating a new visible passage. Choose inspect_pointer or inspect_page only when pixels or spatial layout are genuinely needed, such as a picture, diagram, page design, an explicit request to look at or screenshot the page, or a reference to this, here, or under the cursor. Never take a screenshot merely because a response has no exact passage.",
+    "Every completed user voice turn begins with a forced prepare_reader_response call before audio can be produced. This is an intent decision, not a requirement to manipulate the page. Choose conversation for ordinary conversation or a follow-up that does not depend on visible page content. Choose keep_focus when answering a follow-up about the already focused passage; preserve that highlight without moving, recapturing, or flashing the page. Choose focus only when teaching, quoting, interpreting, summarizing, or narrating a new visible passage. Choose inspect_pointer or inspect_page only when pixels or spatial layout are genuinely needed, such as a picture, diagram, page design, an explicit request to look at or screenshot the page, or a reference to this, here, that, what I am pointing at, near my mouse, or under the cursor. Pointer-reference intent always wins: when the reader refers to their cursor or says a deictic phrase while the pointer is on the PDF, choose inspect_pointer, never focus. Never take a screenshot merely because a response has no exact passage.",
     "## Page-material decisions",
     "The preparation function is the single path for focusing text or inspecting page pixels. It is also your direct screenshot capability: inspect_pointer and inspect_page make the host browser capture the rendered PDF and attach that image to this conversation. Never claim that you cannot take or inspect a screenshot before choosing the appropriate inspection mode and reading its result. Docker does not limit this capability because capture occurs in the reader's browser. For focus, supply one short contiguous verbatim quote of roughly 8–30 words and wait for its result before explaining. For inspection, wait for the attached image before describing pixels. Do not retry a failed preparation with another mode and do not substitute inspection for a failed focus.",
     "## Other tools",
@@ -314,7 +314,7 @@ export function useLorelineVoice(
     const prepareReaderResponse = tool({
       name: "prepare_reader_response",
       description:
-        "Mandatory private intent decision before each voice response. It may deliberately take no page action. This is also the model's direct screenshot tool: inspect_pointer and inspect_page make the host browser capture the rendered PDF and attach the image for vision. Use conversation for a normal conversational response, keep_focus for a follow-up about the passage already highlighted, focus for a new passage, and inspection for a visual question or an explicit request to look at or screenshot the page.",
+        "Mandatory private intent decision before each voice response. It may deliberately take no page action. This is also the model's direct screenshot tool: inspect_pointer and inspect_page make the host browser capture the rendered PDF and attach the image for vision. Use conversation for a normal conversational response, keep_focus for a follow-up about the passage already highlighted, focus for a new passage, and inspection for a visual question or an explicit request to look at or screenshot the page. If the reader says this, here, that, near my mouse, where I am pointing, or under the cursor while a PDF pointer exists, inspect_pointer is mandatory and takes priority over focus.",
       parameters: z.object({
         mode: z.enum([
           "conversation",
@@ -347,8 +347,23 @@ export function useLorelineVoice(
             ? `Keep the existing visible highlight on page ${focused.page} while answering the follow-up about “${focused.text}”. Do not inspect or refocus the page.`
             : "Preparation failed because there is no existing focused passage to keep.";
         }
-        if (mode === "inspect_pointer") return inspectRenderedPage("pointer");
-        if (mode === "inspect_page") return inspectRenderedPage("page");
+        if (mode === "inspect_pointer") {
+          controlsRef.current.clearFocus();
+          const inspection = await inspectRenderedPage("pointer");
+          const pointerText = current.pointer?.text?.trim();
+          if (!pointerText) return inspection;
+          const located = await controlsRef.current.focusPassage({
+            page: current.page,
+            text: pointerText,
+          });
+          return located
+            ? `${inspection} The exact sentence under the cursor is now persistently focused on the page: “${pointerText}”.`
+            : `${inspection} The cursor is over “${pointerText}”, but that sentence could not be focused.`;
+        }
+        if (mode === "inspect_page") {
+          controlsRef.current.clearFocus();
+          return inspectRenderedPage("page");
+        }
 
         const passage = text?.trim() ?? "";
         if (!passage)

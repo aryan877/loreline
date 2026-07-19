@@ -56,6 +56,7 @@ export type ReaderPageCapture = {
 export type ReaderFocus = ReaderSelection & { id: string };
 
 export type ReaderControls = {
+  clearFocus: () => void;
   focusPassage: (input: {
     page: number;
     text: string;

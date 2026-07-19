@@ -255,49 +255,52 @@
 @keyframes pdf-inspection-glow-pulse {
   0% {
     opacity: 0.34;
-    transform: scale(0.68);
+    transform: scale(0.68) rotate(-12deg);
   }
   55% {
     opacity: 0.92;
-    transform: scale(1.08);
+    transform: scale(1.08) rotate(8deg);
   }
   100% {
     opacity: 0.18;
-    transform: scale(1.42);
+    transform: scale(1.42) rotate(22deg);
   }
 }
 
-@keyframes pdf-focus-breathe {
+@keyframes pdf-focus-rainbow-sweep {
   0%,
   100% {
-    background-color: color-mix(
-      in oklab,
-      var(--reader-highlight) 48%,
-      transparent
-    );
-    box-shadow: 0 0 0.6rem
-      color-mix(in oklab, var(--reader-highlight) 34%, transparent);
+    transform: translate3d(-24%, 0, 0);
   }
   50% {
-    background-color: color-mix(
-      in oklab,
-      var(--reader-highlight) 68%,
-      transparent
-    );
-    box-shadow: 0 0 1.15rem
-      color-mix(in oklab, var(--reader-highlight) 58%, transparent);
+    transform: translate3d(24%, 0, 0);
   }
 }
 
 .pdf-reader-focus {
-  background-color: color-mix(
-    in oklab,
-    var(--reader-highlight) 58%,
-    transparent
+  overflow: hidden;
+  background: color-mix(in oklab, var(--reader-highlight) 52%, transparent);
+  box-shadow:
+    0 0 0.75rem color-mix(in oklab, var(--coral) 36%, transparent),
+    0 0 1.35rem color-mix(in oklab, var(--sky) 28%, transparent);
+}
+
+.pdf-reader-focus::after {
+  position: absolute;
+  inset: -35% -70%;
+  content: "";
+  background: linear-gradient(
+    100deg,
+    color-mix(in oklab, var(--gold) 18%, transparent),
+    color-mix(in oklab, var(--coral) 68%, transparent),
+    color-mix(in oklab, var(--sky) 58%, transparent),
+    color-mix(in oklab, var(--sage) 64%, transparent),
+    color-mix(in oklab, var(--gold) 72%, transparent),
+    color-mix(in oklab, var(--coral) 22%, transparent)
   );
-  box-shadow: 0 0 0.85rem
-    color-mix(in oklab, var(--reader-highlight) 42%, transparent);
-  animation: pdf-focus-breathe 2.2s ease-in-out infinite;
+  opacity: 0.78;
+  will-change: transform;
+  animation: pdf-focus-rainbow-sweep 4.2s ease-in-out infinite;
 }
 
 .pdf-reading-aura {
@@ -377,12 +380,22 @@
   background:
     radial-gradient(
       ellipse at 12% 18%,
-      color-mix(in oklab, var(--sky) 30%, transparent),
+      color-mix(in oklab, var(--coral) 34%, transparent),
       transparent 36%
     ),
     radial-gradient(
-      ellipse at 88% 78%,
-      color-mix(in oklab, var(--coral) 26%, transparent),
+      ellipse at 88% 16%,
+      color-mix(in oklab, var(--gold) 32%, transparent),
+      transparent 34%
+    ),
+    radial-gradient(
+      ellipse at 88% 82%,
+      color-mix(in oklab, var(--sky) 32%, transparent),
+      transparent 36%
+    ),
+    radial-gradient(
+      ellipse at 14% 84%,
+      color-mix(in oklab, var(--sage) 34%, transparent),
       transparent 38%
     );
   opacity: 0.48;
@@ -403,14 +416,16 @@
   width: 12rem;
   height: 12rem;
   border-radius: 999px;
-  background: radial-gradient(
-    circle,
-    color-mix(in oklab, var(--coral) 64%, transparent),
-    color-mix(in oklab, var(--gold) 34%, transparent) 28%,
-    color-mix(in oklab, var(--coral) 14%, transparent) 52%,
-    transparent 74%
+  background: conic-gradient(
+    from 35deg,
+    color-mix(in oklab, var(--coral) 72%, transparent),
+    color-mix(in oklab, var(--gold) 68%, transparent),
+    color-mix(in oklab, var(--sage) 64%, transparent),
+    color-mix(in oklab, var(--sky) 68%, transparent),
+    color-mix(in oklab, var(--coral) 72%, transparent)
   );
   filter: blur(10px);
+  mask-image: radial-gradient(circle, black 12%, transparent 72%);
   mix-blend-mode: multiply;
   will-change: transform, opacity;
   animation: pdf-inspection-glow-pulse 1.25s
