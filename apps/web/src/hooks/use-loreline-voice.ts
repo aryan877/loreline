@@ -20,6 +20,7 @@ import type {
   RealtimeMemory,
   RealtimeTokenResponse,
   SearchBookResponse,
+  WebSearchResponse,
 } from "@loreline/contracts/ai";
 import type {
   BoardItem,
@@ -50,6 +51,16 @@ const voiceToolActivity: Record<
     running: "Turning the page…",
     success: "Page changed",
     failed: "Page could not be changed",
+  },
+  bookmark_page: {
+    running: "Bookmarking this page…",
+    success: "Page bookmarked",
+    failed: "Page could not be bookmarked",
+  },
+  search_web: {
+    running: "Checking the live web…",
+    success: "Live web search complete",
+    failed: "Live web search failed",
   },
   save_highlight_note: {
     running: "Saving the passage…",
@@ -96,6 +107,14 @@ async function searchBookRequest(bookId: string, query: string) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ bookId, query, limit: 5 }),
+  });
+}
+
+async function searchWebRequest(query: string) {
+  return apiJson<WebSearchResponse>("/api/web-search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
   });
 }
 
@@ -178,13 +197,13 @@ function pageInstructions(
     "# Role and Objective",
     "You are Loreline, a calm, perceptive realtime reading companion. Help the reader understand the live book while keeping the words you discuss visibly anchored on the page.",
     "# Tools",
-    "Use only the tools currently provided. The reader-facing page tools are read-only and low risk: call them proactively when their conditions are met without asking for confirmation. Never pretend a tool ran. Only say an action succeeded after its result confirms success.",
+    "Use only the tools currently provided. Page inspection, passage focus, book retrieval, web retrieval, and navigation are low risk: call them proactively when their conditions are met. Persistent write tools require an explicit matching reader request. Never pretend a tool ran. Only say an action succeeded after its result confirms success.",
     "## prepare_reader_response — REQUIRED PRIVATE DECISION",
     "Every completed user voice turn begins with a forced prepare_reader_response call before audio can be produced. This is an intent decision, not a requirement to manipulate the page. Choose conversation for ordinary conversation or a follow-up that does not depend on visible page content. Choose keep_focus when answering a follow-up about the already focused passage; preserve that highlight without moving, recapturing, or flashing the page. Choose focus only when teaching, quoting, interpreting, summarizing, or narrating a new visible passage. Choose inspect_pointer or inspect_page only when pixels or spatial layout are genuinely needed, such as a picture, diagram, page design, an explicit request to look at or screenshot the page, or a reference to this, here, that, what I am pointing at, near my mouse, or under the cursor. Pointer-reference intent always wins: when the reader refers to their cursor or says a deictic phrase while the pointer is on the PDF, choose inspect_pointer, never focus. Never take a screenshot merely because a response has no exact passage.",
     "## Page-material decisions",
     "The preparation function is the single path for focusing text or inspecting page pixels. It is also your direct screenshot capability: inspect_pointer and inspect_page make the host browser capture the rendered PDF and attach that image to this conversation. Never claim that you cannot take or inspect a screenshot before choosing the appropriate inspection mode and reading its result. Docker does not limit this capability because capture occurs in the reader's browser. For focus, supply one short contiguous verbatim quote of roughly 8–30 words and wait for its result before explaining. For inspection, wait for the attached image before describing pixels. Do not retry a failed preparation with another mode and do not substitute inspection for a failed focus.",
     "## Other tools",
-    "Call search_book only when the live page, selection, and an on-demand page inspection are genuinely insufficient. Use save_highlight_note for a persistent note linked to PDF text. Use place_note only for a temporary sideboard thought. Use place_visual when an image, scene, analogy, map, or diagram would materially improve understanding. Use turn_page only after an explicit spoken navigation request.",
+    "Use search_book before answering most questions about the book's people, events, claims, themes, chronology, or earlier/later context. Skip book retrieval only when the complete answer is plainly contained in the short visible passage or the reader is making an ordinary conversational follow-up. Use search_web only for recent, changing, or outside-book information that the book and model may not know; never use it merely to answer what this book says. Use bookmark_page only when the reader explicitly asks to bookmark, save, or mark a whole page. A page bookmark is not a note: never call save_highlight_note or place_note for a bookmark request. Use save_highlight_note for a persistent note linked to exact PDF text. Use place_note only for a temporary sideboard thought. Use place_visual when an image, scene, analogy, map, or diagram would materially improve understanding. Use turn_page only after an explicit spoken navigation request.",
     "# Tool Failures",
     "If a tool fails, explain the failure briefly in reader-friendly language. Do not retry it through another tool or mode, expose raw errors, or claim completion.",
     "# Conversation Flow",
@@ -381,7 +400,7 @@ export function useLorelineVoice(
     const searchBook = tool({
       name: "search_book",
       description:
-        "Search other parts of the current book. Use only when the visible page, selection, and an on-demand page inspection are insufficient.",
+        "Retrieve relevant passages from across the current book. Use before most answers about the book's people, events, claims, themes, chronology, or broader context.",
       parameters: z.object({
         query: z.string().min(2).max(1000),
         reason: z.string().min(2).max(300),
@@ -404,6 +423,31 @@ export function useLorelineVoice(
           );
         } catch {
           return "Book search is temporarily unavailable.";
+        }
+      },
+    });
+
+    const searchWeb = tool({
+      name: "search_web",
+      description:
+        "Search the live web for recent, changing, or outside-book information that may not be available in the book or model knowledge. Do not use this to answer what the current book says.",
+      parameters: z.object({
+        query: z.string().trim().min(2).max(2000),
+        reason: z.string().trim().min(2).max(300),
+      }),
+      execute: async ({ query }) => {
+        try {
+          const data = await searchWebRequest(query);
+          return (
+            data.results
+              .map(
+                (result) =>
+                  `${result.title}\n${result.url}\n${result.content}`,
+              )
+              .join("\n\n") || "No relevant live web results were found."
+          );
+        } catch {
+          return "Live web search is temporarily unavailable.";
         }
       },
     });
@@ -480,6 +524,30 @@ export function useLorelineVoice(
       },
     });
 
+    const bookmarkPage = tool({
+      name: "bookmark_page",
+      description:
+        "Save a whole PDF page as a page bookmark. Use only when the reader explicitly asks to bookmark, save, or mark the current page or a specific page. Never use a note tool for this request.",
+      parameters: z.object({
+        page: z
+          .number()
+          .int()
+          .positive()
+          .describe("The current or explicitly requested PDF page number."),
+      }),
+      execute: async ({ page }) => {
+        try {
+          const result = await controlsRef.current.bookmarkPage(page);
+          if (result === "created") return `Bookmarked page ${page}.`;
+          if (result === "existing")
+            return `Page ${page} is already bookmarked.`;
+          return `Page ${page} could not be bookmarked because it is outside this book.`;
+        } catch {
+          return "The page bookmark is temporarily unavailable.";
+        }
+      },
+    });
+
     const saveHighlightNote = tool({
       name: "save_highlight_note",
       description:
@@ -511,7 +579,9 @@ export function useLorelineVoice(
       tools: [
         prepareReaderResponse,
         searchBook,
+        searchWeb,
         turnPage,
+        bookmarkPage,
         saveHighlightNote,
         placeNote,
         placeVisual,

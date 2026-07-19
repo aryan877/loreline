@@ -935,7 +935,10 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     queryFn: () => getBookmarks(bookId),
   });
   const highlights = highlightsQuery.data ?? [];
-  const bookmarks = bookmarksQuery.data ?? [];
+  const bookmarks = useMemo(
+    () => bookmarksQuery.data ?? [],
+    [bookmarksQuery.data],
+  );
 
   useEffect(() => {
     const node = viewportRef.current;
@@ -1171,19 +1174,31 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     [createHighlightMutation, focusPassage],
   );
 
+  const bookmarkPage = useCallback(
+    async (targetPage: number) => {
+      if (targetPage < 1 || targetPage > numPages) return "invalid" as const;
+      if (bookmarks.some((item) => item.page === targetPage))
+        return "existing" as const;
+      await createBookmarkMutation.mutateAsync(targetPage);
+      return "created" as const;
+    },
+    [bookmarks, createBookmarkMutation, numPages],
+  );
+
   const readerControls = useMemo<ReaderControls>(
     () => ({
       clearFocus,
       focusPassage,
       savePassageNote,
       capturePageImage: (focus) => pageCaptureRef.current(focus),
+      bookmarkPage,
       goToPage: (nextPage) => {
         if (nextPage < 1 || nextPage > numPages) return false;
         go(nextPage);
         return true;
       },
     }),
-    [clearFocus, focusPassage, go, numPages, savePassageNote],
+    [bookmarkPage, clearFocus, focusPassage, go, numPages, savePassageNote],
   );
 
   useEffect(() => cancelPendingFocus, [cancelPendingFocus]);
@@ -1326,7 +1341,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
                   }
                   onClick={() => {
                     if (!currentBookmark) {
-                      createBookmarkMutation.mutate(page);
+                      void bookmarkPage(page);
                       return;
                     }
                     const bookmarkId = currentBookmark.id;

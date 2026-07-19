@@ -55,6 +55,8 @@ export type ReaderPageCapture = {
 
 export type ReaderFocus = ReaderSelection & { id: string };
 
+export type ReaderBookmarkResult = "created" | "existing" | "invalid";
+
 export type ReaderControls = {
   clearFocus: () => void;
   focusPassage: (input: {
@@ -69,6 +71,7 @@ export type ReaderControls = {
   capturePageImage: (options: {
     markPointer: boolean;
   }) => ReaderPageCapture | null;
+  bookmarkPage: (page: number) => Promise<ReaderBookmarkResult>;
   goToPage: (page: number) => boolean;
 };
 

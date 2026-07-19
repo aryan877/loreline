@@ -187,6 +187,7 @@ Copy `.env.example` to `.env`. Never put real secrets in committed files.
 | `OPENROUTER_EMBEDDING_MODEL` | No | Defaults to `openai/text-embedding-3-small` |
 | `OPENROUTER_IMAGE_MODEL` | No | Defaults to `openai/gpt-image-2`; requests use `quality: low` |
 | `OPENROUTER_COMPACTION_MODEL` | No | Defaults to `deepseek/deepseek-v4-flash` |
+| `TAVILY_API_KEY` | For live web search | Recent or outside-book facts requested through Realtime voice |
 
 For local Google OAuth, configure this exact authorized redirect URI in Google Cloud:
 

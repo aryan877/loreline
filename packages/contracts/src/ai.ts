@@ -23,6 +23,23 @@ export const searchBookResponseSchema = z.object({
 });
 export type SearchBookResponse = z.infer<typeof searchBookResponseSchema>;
 
+export const webSearchInputSchema = z.object({
+  query: z.string().trim().min(2).max(2_000),
+});
+export type WebSearchInput = z.input<typeof webSearchInputSchema>;
+
+export const webSearchResultSchema = z.object({
+  title: z.string().trim().min(1),
+  url: z.url(),
+  content: z.string().trim().min(1),
+});
+export type WebSearchResult = z.infer<typeof webSearchResultSchema>;
+
+export const webSearchResponseSchema = z.object({
+  results: z.array(webSearchResultSchema),
+});
+export type WebSearchResponse = z.infer<typeof webSearchResponseSchema>;
+
 export const illustrationInputSchema = z.object({
   bookId: idSchema,
   page: z.number().int().positive(),

@@ -3,6 +3,7 @@ import { Config, Context, Effect, Layer, Option } from "effect";
 export interface AppConfig {
   readonly openAiApiKey?: string;
   readonly openRouterApiKey?: string;
+  readonly tavilyApiKey?: string;
   readonly compactionModel: string;
   readonly realtimeModel: string;
   readonly openRouterImageModel: string;
@@ -30,6 +31,7 @@ export const AppConfigLive = Layer.effect(
     return {
       openAiApiKey: yield* optional("OPENAI_API_KEY"),
       openRouterApiKey: yield* optional("OPENROUTER_API_KEY"),
+      tavilyApiKey: yield* optional("TAVILY_API_KEY"),
       compactionModel: yield* Config.string("OPENROUTER_COMPACTION_MODEL").pipe(
         Config.withDefault("deepseek/deepseek-v4-flash"),
       ),

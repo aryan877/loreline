@@ -19,6 +19,7 @@ import {
 import { POST as createIllustration } from "@/modules/ai/routes/illustrations";
 import { POST as compactRealtime } from "@/modules/ai/routes/compaction";
 import { POST as createRealtimeSession } from "@/modules/ai/routes/realtime";
+import { POST as searchWeb } from "@/modules/ai/routes/web-search";
 import {
   GET as listBooks,
   POST as beginBookUpload,
@@ -214,6 +215,7 @@ const AiRouter = HttpRouter.empty.pipe(
   HttpRouter.post("/api/illustrations", adapt(createIllustration)),
   HttpRouter.post("/api/realtime", adapt(createRealtimeSession)),
   HttpRouter.post("/api/realtime/compact", adapt(compactRealtime)),
+  HttpRouter.post("/api/web-search", adapt(searchWeb)),
 );
 
 export const ApiRouter = HttpRouter.concatAll(
