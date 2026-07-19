@@ -1,4 +1,5 @@
 import { Config, Context, Effect, Layer, Option } from "effect";
+import { LORELINE_REALTIME_MODEL_ID } from "@loreline/contracts/ai";
 
 export interface AppConfig {
   readonly openAiApiKey?: string;
@@ -36,7 +37,7 @@ export const AppConfigLive = Layer.effect(
         Config.withDefault("deepseek/deepseek-v4-flash"),
       ),
       realtimeModel: yield* Config.string("OPENAI_REALTIME_MODEL").pipe(
-        Config.withDefault("gpt-realtime-2.1"),
+        Config.withDefault(LORELINE_REALTIME_MODEL_ID),
       ),
       openRouterImageModel: yield* Config.string("OPENROUTER_IMAGE_MODEL").pipe(
         Config.withDefault("openai/gpt-image-2"),

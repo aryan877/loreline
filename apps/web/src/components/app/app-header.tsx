@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { Library, LogOut } from "lucide-react";
 import type { CurrentUser } from "@loreline/contracts/auth";
+import { RealtimeModelBadge } from "@/components/app/realtime-model-badge";
 import { Logo } from "@/components/brand/logo";
 import {
   Avatar,
@@ -91,6 +92,7 @@ export function AppHeader({ user, variant = "app" }: AppHeaderProps) {
           )}
         </div>
         <div className="flex items-center gap-1.5">
+          <RealtimeModelBadge className="mr-1 hidden sm:inline-flex" />
           {user ? (
             <>
               {marketing ? (

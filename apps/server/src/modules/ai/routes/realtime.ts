@@ -8,6 +8,7 @@ import {
 import { RealtimeService, runServerEffect } from "@/platform/services";
 import { mintRealtimeClientSecret } from "@/modules/ai/realtime/contracts";
 import {
+  LORELINE_REALTIME_MODEL_ID,
   realtimeTokenInputSchema,
   realtimeTokenResponseSchema,
 } from "@loreline/contracts/ai";
@@ -41,8 +42,8 @@ export async function POST(request: Request) {
       expiresAt: result.expires_at,
       model:
         result.session.type === "realtime"
-          ? (result.session.model ?? "gpt-realtime-2.1")
-          : "gpt-realtime-2.1",
+          ? (result.session.model ?? LORELINE_REALTIME_MODEL_ID)
+          : LORELINE_REALTIME_MODEL_ID,
     });
     return Response.json(response);
   } catch (error) {

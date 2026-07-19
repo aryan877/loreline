@@ -182,7 +182,7 @@ Copy `.env.example` to `.env`. Never put real secrets in committed files.
 | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Yes | Bucket-scoped Object Read & Write token |
 | `R2_BUCKET_NAME` | Yes | Private PDF/illustration bucket |
 | `OPENAI_API_KEY` | For voice | Mints short-lived Realtime client secrets |
-| `OPENAI_REALTIME_MODEL` | No | Defaults to `gpt-realtime-2.1-mini` |
+| `OPENAI_REALTIME_MODEL` | No | Defaults to `gpt-realtime-2.1` |
 | `OPENROUTER_API_KEY` | For RAG/visuals/memory | Embeddings, low-quality illustrations, and compaction |
 | `OPENROUTER_EMBEDDING_MODEL` | No | Defaults to `openai/text-embedding-3-small` |
 | `OPENROUTER_IMAGE_MODEL` | No | Defaults to `openai/gpt-image-2`; requests use `quality: low` |

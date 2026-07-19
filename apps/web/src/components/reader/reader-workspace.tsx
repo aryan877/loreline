@@ -39,6 +39,7 @@ import {
   useState,
 } from "react";
 import { Logo } from "@/components/brand/logo";
+import { RealtimeModelBadge } from "@/components/app/realtime-model-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -550,13 +551,16 @@ function Sideboard({
   return (
     <aside className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-l bg-card">
       <div className="min-w-0 border-b bg-card px-4 pt-3.5">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold">Workspace</p>
-          <p className="truncate text-[0.7rem] text-muted-foreground">
-            {mode === "board"
-              ? `Thinking board for page ${page}`
-              : "Highlights, notes, and saved pages"}
-          </p>
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">Workspace</p>
+            <p className="truncate text-[0.7rem] text-muted-foreground">
+              {mode === "board"
+                ? `Thinking board for page ${page}`
+                : "Highlights, notes, and saved pages"}
+            </p>
+          </div>
+          <RealtimeModelBadge className="mt-0.5" />
         </div>
         <div className="mt-3 flex gap-5" role="tablist" aria-label="Workspace">
           <button
