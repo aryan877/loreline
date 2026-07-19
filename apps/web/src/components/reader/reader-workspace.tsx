@@ -920,6 +920,11 @@ export function ReaderWorkspace({ bookId }: { bookId: string }) {
 function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(book.lastPage || 1);
+  const [navigationRequest, setNavigationRequest] = useState({
+    id: `initial:${book.id}:${book.lastPage || 1}`,
+    page: book.lastPage || 1,
+    behavior: "auto" as ScrollBehavior,
+  });
   const [numPages, setNumPages] = useState(book.pageCount || 1);
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
@@ -971,6 +976,86 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     setZoom(next);
     return next;
   }, []);
+
+  const clearLiveZoom = useCallback(() => {
+    const node = viewportRef.current;
+    if (!node) return;
+    node.style.removeProperty("--reader-live-page-width");
+    node.style.removeProperty("--reader-live-page-height");
+    node.style.removeProperty("--reader-live-render-scale");
+  }, []);
+
+  const applyLiveZoom = useCallback(
+    (
+      value: number,
+      clientX: number,
+      clientY: number,
+      targetPage?: number,
+    ) => {
+      const node = viewportRef.current;
+      if (!node) return null;
+      const pageNode =
+        (targetPage
+          ? node.querySelector<HTMLElement>(
+              `[data-reader-page="${targetPage}"]`,
+            )
+          : document
+              .elementFromPoint(clientX, clientY)
+              ?.closest<HTMLElement>(".pdf-reader-shell")) ??
+        node.querySelector<HTMLElement>(".pdf-reader-shell");
+      if (!pageNode) return null;
+      const baseWidth = Number(pageNode.dataset.readerBaseWidth);
+      const baseHeight = Number(pageNode.dataset.readerBaseHeight);
+      const renderWidth = Number(pageNode.dataset.readerRenderWidth);
+      if (!baseWidth || !baseHeight || !renderWidth) return null;
+
+      const next = normalizeReaderZoom(value);
+      const before = pageNode.getBoundingClientRect();
+      const anchorX = Math.max(
+        0,
+        Math.min(1, (clientX - before.left) / Math.max(1, before.width)),
+      );
+      const anchorY = Math.max(
+        0,
+        Math.min(1, (clientY - before.top) / Math.max(1, before.height)),
+      );
+      const nextWidth = Math.max(1, Math.floor(baseWidth * next));
+      const nextHeight = Math.max(1, Math.floor(baseHeight * next));
+      zoomRef.current = next;
+      node.style.setProperty("--reader-live-page-width", `${nextWidth}px`);
+      node.style.setProperty("--reader-live-page-height", `${nextHeight}px`);
+      node.style.setProperty(
+        "--reader-live-render-scale",
+        String(nextWidth / renderWidth),
+      );
+      if (zoomLabelRef.current)
+        zoomLabelRef.current.textContent = `${Math.round(next * 100)}%`;
+
+      const after = pageNode.getBoundingClientRect();
+      node.scrollLeft += after.left + after.width * anchorX - clientX;
+      node.scrollTop += after.top + after.height * anchorY - clientY;
+      return next;
+    },
+    [],
+  );
+
+  const zoomFromControl = useCallback(
+    (value: number) => {
+      const node = viewportRef.current;
+      if (!node) return;
+      const viewportRect = node.getBoundingClientRect();
+      const next = applyLiveZoom(
+        value,
+        viewportRect.left + viewportRect.width / 2,
+        viewportRect.top + viewportRect.height / 2,
+        page,
+      );
+      if (next === null) return;
+      commitZoom(next);
+      window.requestAnimationFrame(clearLiveZoom);
+    },
+    [applyLiveZoom, clearLiveZoom, commitZoom, page],
+  );
 
   const resizeSideboard = useCallback((clientX: number) => {
     const maxWidth = Math.max(320, Math.min(720, window.innerWidth - 480));
@@ -1053,52 +1138,15 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     let clientX = 0;
     let clientY = 0;
 
-    const clearLiveZoom = () => {
-      node.style.removeProperty("--reader-live-page-width");
-      node.style.removeProperty("--reader-live-page-height");
-      node.style.removeProperty("--reader-live-render-scale");
-    };
-
     const applyGestureZoom = () => {
       zoomFrame = null;
-      const pageNode = node.querySelector<HTMLElement>(".pdf-reader-shell");
-      if (!pageNode) return;
-      const baseWidth = Number(pageNode.dataset.readerBaseWidth);
-      const baseHeight = Number(pageNode.dataset.readerBaseHeight);
-      const renderWidth = Number(pageNode.dataset.readerRenderWidth);
-      if (!baseWidth || !baseHeight || !renderWidth) return;
-
       const current = zoomRef.current;
       const next = normalizeReaderZoom(
         current * Math.exp(-accumulatedDelta * 0.002),
       );
       accumulatedDelta = 0;
       if (next === current) return;
-
-      const before = pageNode.getBoundingClientRect();
-      const anchorX = Math.max(
-        0,
-        Math.min(1, (clientX - before.left) / Math.max(1, before.width)),
-      );
-      const anchorY = Math.max(
-        0,
-        Math.min(1, (clientY - before.top) / Math.max(1, before.height)),
-      );
-      const nextWidth = Math.max(1, Math.floor(baseWidth * next));
-      const nextHeight = Math.max(1, Math.floor(baseHeight * next));
-      zoomRef.current = next;
-      node.style.setProperty("--reader-live-page-width", `${nextWidth}px`);
-      node.style.setProperty("--reader-live-page-height", `${nextHeight}px`);
-      node.style.setProperty(
-        "--reader-live-render-scale",
-        String(nextWidth / renderWidth),
-      );
-      if (zoomLabelRef.current)
-        zoomLabelRef.current.textContent = `${Math.round(next * 100)}%`;
-
-      const after = pageNode.getBoundingClientRect();
-      node.scrollLeft += after.left + after.width * anchorX - clientX;
-      node.scrollTop += after.top + after.height * anchorY - clientY;
+      applyLiveZoom(next, clientX, clientY);
 
       if (settleTimeout !== null) window.clearTimeout(settleTimeout);
       settleTimeout = window.setTimeout(() => {
@@ -1139,7 +1187,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
       if (clearFrame !== null) window.cancelAnimationFrame(clearFrame);
       clearLiveZoom();
     };
-  }, [commitZoom]);
+  }, [applyLiveZoom, clearLiveZoom, commitZoom]);
 
   const progressMutation = useMutation({
     mutationFn: async (nextPage: number) => {
@@ -1286,15 +1334,27 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   const go = useCallback(
     (next: number) => {
       cancelPendingFocus();
-      setPage(Math.min(numPages, Math.max(1, next)));
+      const targetPage = Math.min(numPages, Math.max(1, next));
+      setPage(targetPage);
+      setNavigationRequest({
+        id: crypto.randomUUID(),
+        page: targetPage,
+        behavior: "auto",
+      });
       setSelection(null);
       setActiveFocus(null);
       setFocusRequest(null);
       setPointer(null);
       setVisibleText("");
+      window.getSelection()?.removeAllRanges();
     },
     [cancelPendingFocus, numPages],
   );
+
+  const updateCurrentPageFromScroll = useCallback((nextPage: number) => {
+    setPage((current) => (current === nextPage ? current : nextPage));
+    setPointer(null);
+  }, []);
 
   const focusPassage = useCallback(
     ({ page: targetPage, text }: { page: number; text: string }) => {
@@ -1417,7 +1477,6 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   );
 
   const currentBookmark = bookmarks.find((item) => item.page === page);
-  const pageHighlights = highlights.filter((item) => item.page === page);
 
   const sideboard = (
     <Sideboard
@@ -1565,7 +1624,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
             variant="ghost"
             size="icon-sm"
             aria-label="Zoom out"
-            onClick={() => commitZoom(zoomRef.current - READER_ZOOM_STEP)}
+            onClick={() => zoomFromControl(zoomRef.current - READER_ZOOM_STEP)}
             disabled={zoom <= MIN_READER_ZOOM}
           >
             <Minus />
@@ -1580,7 +1639,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
             variant="ghost"
             size="icon-sm"
             aria-label="Zoom in"
-            onClick={() => commitZoom(zoomRef.current + READER_ZOOM_STEP)}
+            onClick={() => zoomFromControl(zoomRef.current + READER_ZOOM_STEP)}
             disabled={zoom >= MAX_READER_ZOOM}
           >
             <Plus />
@@ -1638,19 +1697,21 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
           >
             <PdfReader
               fileUrl={`/api/books/${bookId}/file`}
-              page={page}
+              currentPage={page}
               viewport={viewportSize}
               zoom={zoom}
               voiceState={voiceState}
-              highlights={pageHighlights}
+              highlights={highlights}
               selection={selection}
               activeFocus={activeFocus}
               focusRequest={focusRequest}
+              navigationRequest={navigationRequest}
               onDocumentReady={(document) => {
                 setPdfDocument(document);
                 setNumPages(document.numPages);
-                if (page > document.numPages) setPage(document.numPages);
+                if (page > document.numPages) go(document.numPages);
               }}
+              onCurrentPageChange={updateCurrentPageFromScroll}
               onVisibleTextChange={setVisibleText}
               onPageCaptureReady={setPageCapture}
               onPointerChange={setPointer}

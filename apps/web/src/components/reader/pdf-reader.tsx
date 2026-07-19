@@ -6,6 +6,8 @@ import {
   type ComponentProps,
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -43,6 +45,8 @@ const REALTIME_IMAGE_WIDTHS = [960, 768, 640, 512, 384] as const;
 const REALTIME_IMAGE_QUALITIES = [0.62, 0.5, 0.4, 0.3] as const;
 const PDF_PAGE_RENDER_WIDTH = 2048;
 const PDF_PAGE_RENDER_PIXEL_RATIO = 2;
+const PDF_PAGE_RENDER_RADIUS = 1;
+const DEFAULT_PAGE_ASPECT_RATIO = 1 / Math.SQRT2;
 
 function drawPointerMarker(
   context: CanvasRenderingContext2D,
@@ -120,7 +124,7 @@ function captureRealtimePageImage(
 
 type PdfReaderProps = {
   fileUrl: string;
-  page: number;
+  currentPage: number;
   viewport: { width: number; height: number };
   zoom: number;
   voiceState: VoiceState;
@@ -128,7 +132,13 @@ type PdfReaderProps = {
   selection: ReaderSelection | null;
   activeFocus: ReaderFocus | null;
   focusRequest: ReaderFocusRequest | null;
+  navigationRequest: {
+    id: string;
+    page: number;
+    behavior: ScrollBehavior;
+  };
   onDocumentReady: (document: PDFDocumentProxy) => void;
+  onCurrentPageChange: (page: number) => void;
   onVisibleTextChange: (text: string) => void;
   onPageCaptureReady: (
     capture: ReaderControls["capturePageImage"] | null,
@@ -138,6 +148,25 @@ type PdfReaderProps = {
   onFocusResolved: (
     request: ReaderFocusRequest,
     rects: HighlightRect[],
+  ) => void;
+};
+
+type PdfPageSurfaceProps = Omit<
+  PdfReaderProps,
+  | "currentPage"
+  | "navigationRequest"
+  | "onDocumentReady"
+  | "onCurrentPageChange"
+  | "onVisibleTextChange"
+  | "onPageCaptureReady"
+> & {
+  page: number;
+  isCurrent: boolean;
+  aspectRatio: number;
+  onVisibleTextChange: (page: number, text: string) => void;
+  onPageCaptureReady: (
+    page: number,
+    capture: ReaderControls["capturePageImage"] | null,
   ) => void;
 };
 
@@ -494,9 +523,11 @@ function HighlightLayer({
   );
 }
 
-export default function PdfReader({
+function PdfPageSurface({
   fileUrl,
   page,
+  isCurrent,
+  aspectRatio,
   viewport,
   zoom,
   voiceState,
@@ -504,13 +535,12 @@ export default function PdfReader({
   selection,
   activeFocus,
   focusRequest,
-  onDocumentReady,
   onVisibleTextChange,
   onPageCaptureReady,
   onPointerChange,
   onSelectionChange,
   onFocusResolved,
-}: PdfReaderProps) {
+}: PdfPageSurfaceProps) {
   const pageRef = useRef<HTMLDivElement>(null);
   const pointerVisualRef = useRef<HTMLSpanElement>(null);
   const renderedPageRef = useRef<number | null>(null);
@@ -533,21 +563,9 @@ export default function PdfReader({
     page: number;
   } | null>(null);
   const [textLayerPage, setTextLayerPage] = useState<number | null>(null);
-  const [pageSize, setPageSize] = useState<{
-    fileUrl: string;
-    page: number;
-    width: number;
-    height: number;
-  } | null>(null);
   const hasError = failedPage?.fileUrl === fileUrl && failedPage.page === page;
-  const currentPageSize =
-    pageSize?.fileUrl === fileUrl && pageSize.page === page ? pageSize : null;
-  const aspectRatio = currentPageSize
-    ? currentPageSize.width / currentPageSize.height
-    : 1 / Math.SQRT2;
   const fittedWidth = Math.min(viewport.width, viewport.height * aspectRatio);
   const targetWidth = Math.max(1, Math.floor(fittedWidth * zoom));
-  const targetHeight = Math.max(1, Math.floor(targetWidth / aspectRatio));
   const renderWidth = PDF_PAGE_RENDER_WIDTH;
   const renderHeight = Math.max(1, Math.floor(renderWidth / aspectRatio));
   const renderScale = targetWidth / renderWidth;
@@ -639,7 +657,7 @@ export default function PdfReader({
   const loadError = useCallback(() => {
     setFailedPage({ fileUrl, page });
     renderedPageRef.current = null;
-    onVisibleTextChange("");
+    onVisibleTextChange(page, "");
   }, [fileUrl, onVisibleTextChange, page]);
 
   const handlePageRender = useCallback(() => {
@@ -670,14 +688,13 @@ export default function PdfReader({
   );
 
   useEffect(() => {
-    onPageCaptureReady(capturePageImage);
-    return () => onPageCaptureReady(null);
-  }, [capturePageImage, onPageCaptureReady]);
+    onPageCaptureReady(page, capturePageImage);
+    return () => onPageCaptureReady(page, null);
+  }, [capturePageImage, onPageCaptureReady, page]);
 
   useEffect(() => {
     renderedPageRef.current = null;
     nativeSelectionActiveRef.current = false;
-    window.getSelection()?.removeAllRanges();
     const frame = window.requestAnimationFrame(() => {
       setLiveSelection(null);
       setSelectionGestureActive(false);
@@ -686,33 +703,12 @@ export default function PdfReader({
     return () => window.cancelAnimationFrame(frame);
   }, [fileUrl, page]);
 
-  const handlePageLoad = useCallback<
-    NonNullable<ComponentProps<typeof Page>["onLoadSuccess"]>
-  >(
-    (loadedPage) => {
-      const nextSize = {
-        fileUrl,
-        page,
-        width: loadedPage.originalWidth,
-        height: loadedPage.originalHeight,
-      };
-      setPageSize((current) =>
-        current?.fileUrl === nextSize.fileUrl &&
-        current.page === nextSize.page &&
-        current.width === nextSize.width &&
-        current.height === nextSize.height
-          ? current
-          : nextSize,
-      );
-    },
-    [fileUrl, page],
-  );
-
   const handleTextSuccess = useCallback<
     NonNullable<ComponentProps<typeof Page>["onGetTextSuccess"]>
   >(
     (content) =>
       onVisibleTextChange(
+        page,
         content.items
           .map((item) => ("str" in item ? item.str : ""))
           .join(" ")
@@ -720,7 +716,7 @@ export default function PdfReader({
           .trim()
           .slice(0, 16000),
       ),
-    [onVisibleTextChange],
+    [onVisibleTextChange, page],
   );
 
   const handleTextLayerRender = useCallback(() => {
@@ -733,9 +729,9 @@ export default function PdfReader({
     nativeSelectionActiveRef.current = false;
     setLiveSelection(null);
     setSelectionGestureActive(false);
-    onPointerChange(null);
+    if (isCurrent) onPointerChange(null);
     setTextLayerPage(page);
-  }, [onPointerChange, page]);
+  }, [isCurrent, onPointerChange, page]);
 
   useEffect(() => {
     const readNativeSelection = () => {
@@ -840,10 +836,7 @@ export default function PdfReader({
 
   if (hasError)
     return (
-      <div
-        style={{ width: targetWidth, height: targetHeight }}
-        className="grid place-items-center bg-reader-paper p-8"
-      >
+      <div className="grid size-full place-items-center bg-reader-paper p-8">
         <div className="max-w-sm text-center">
           <p className="font-display text-2xl font-semibold">
             This page couldn’t be rendered.
@@ -867,16 +860,7 @@ export default function PdfReader({
     );
 
   return (
-    <div
-      data-reader-base-width={fittedWidth}
-      data-reader-base-height={fittedWidth / aspectRatio}
-      data-reader-render-width={renderWidth}
-      style={{
-        width: `var(--reader-live-page-width, ${targetWidth}px)`,
-        height: `var(--reader-live-page-height, ${targetHeight}px)`,
-      }}
-      className="pdf-reader-shell relative mx-auto w-fit"
-    >
+    <>
       <ReaderStateAura mode={auraMode} />
       <div
         ref={pageRef}
@@ -908,10 +892,12 @@ export default function PdfReader({
             transform: `translate3d(0, 0, 0) scale(var(--reader-live-render-scale, ${renderScale}))`,
           }}
         >
-          <Document
+          <Page
             key={attempt}
-            file={fileUrl}
-            options={PDF_DOCUMENT_OPTIONS}
+            pageNumber={page}
+            width={renderWidth}
+            devicePixelRatio={PDF_PAGE_RENDER_PIXEL_RATIO}
+            renderAnnotationLayer={false}
             loading={
               <div
                 style={{ width: renderWidth, height: renderHeight }}
@@ -920,25 +906,11 @@ export default function PdfReader({
                 <LoaderCircle className="size-5 animate-spin text-coral" />
               </div>
             }
-            onLoadSuccess={(document) => {
-              setFailedPage(null);
-              onDocumentReady(document);
-            }}
-            onLoadError={loadError}
-            onSourceError={loadError}
-          >
-            <Page
-              pageNumber={page}
-              width={renderWidth}
-              devicePixelRatio={PDF_PAGE_RENDER_PIXEL_RATIO}
-              renderAnnotationLayer={false}
-              onLoadSuccess={handlePageLoad}
-              onRenderError={loadError}
-              onRenderSuccess={handlePageRender}
-              onGetTextSuccess={handleTextSuccess}
-              onRenderTextLayerSuccess={handleTextLayerRender}
-            />
-          </Document>
+            onRenderError={loadError}
+            onRenderSuccess={handlePageRender}
+            onGetTextSuccess={handleTextSuccess}
+            onRenderTextLayerSuccess={handleTextLayerRender}
+          />
         </div>
         <ReadingAura mode={auraMode} inspectionTarget={inspectionTarget} />
         <HighlightLayer
@@ -954,6 +926,284 @@ export default function PdfReader({
           <MousePointer2 className="size-5 fill-gold text-foreground drop-shadow-md" />
         </span>
       </div>
-    </div>
+    </>
+  );
+}
+
+export default function PdfReader({
+  fileUrl,
+  currentPage,
+  viewport,
+  zoom,
+  voiceState,
+  highlights,
+  selection,
+  activeFocus,
+  focusRequest,
+  navigationRequest,
+  onDocumentReady,
+  onCurrentPageChange,
+  onVisibleTextChange,
+  onPageCaptureReady,
+  onPointerChange,
+  onSelectionChange,
+  onFocusResolved,
+}: PdfReaderProps) {
+  const streamRef = useRef<HTMLDivElement>(null);
+  const currentPageRef = useRef(currentPage);
+  const captureByPageRef = useRef(
+    new Map<number, ReaderControls["capturePageImage"]>(),
+  );
+  const textByPageRef = useRef(new Map<number, string>());
+  const loadedDocumentRef = useRef<PDFDocumentProxy | null>(null);
+  const positionedRef = useRef(false);
+  const [documentAttempt, setDocumentAttempt] = useState(0);
+  const [documentFailed, setDocumentFailed] = useState(false);
+  const [documentPages, setDocumentPages] = useState(0);
+  const [aspectRatio, setAspectRatio] = useState(DEFAULT_PAGE_ASPECT_RATIO);
+  const pages = useMemo(
+    () => Array.from({ length: documentPages }, (_, index) => index + 1),
+    [documentPages],
+  );
+  const fittedWidth = Math.min(viewport.width, viewport.height * aspectRatio);
+  const targetWidth = Math.max(1, Math.floor(fittedWidth * zoom));
+  const targetHeight = Math.max(1, Math.floor(targetWidth / aspectRatio));
+
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+    onVisibleTextChange(textByPageRef.current.get(currentPage) ?? "");
+  }, [currentPage, onVisibleTextChange]);
+
+  useEffect(() => {
+    positionedRef.current = false;
+    loadedDocumentRef.current = null;
+    captureByPageRef.current.clear();
+    textByPageRef.current.clear();
+    const frame = window.requestAnimationFrame(() => {
+      setDocumentPages(0);
+      setDocumentFailed(false);
+      setAspectRatio(DEFAULT_PAGE_ASPECT_RATIO);
+    });
+    return () => {
+      loadedDocumentRef.current = null;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [fileUrl]);
+
+  const captureCurrentPage = useCallback<
+    ReaderControls["capturePageImage"]
+  >(
+    (input) =>
+      captureByPageRef.current.get(currentPageRef.current)?.(input) ?? null,
+    [],
+  );
+
+  useEffect(() => {
+    onPageCaptureReady(captureCurrentPage);
+    return () => onPageCaptureReady(null);
+  }, [captureCurrentPage, onPageCaptureReady]);
+
+  const registerPageCapture = useCallback(
+    (
+      page: number,
+      capture: ReaderControls["capturePageImage"] | null,
+    ) => {
+      if (capture) captureByPageRef.current.set(page, capture);
+      else captureByPageRef.current.delete(page);
+    },
+    [],
+  );
+
+  const registerVisibleText = useCallback(
+    (page: number, text: string) => {
+      textByPageRef.current.set(page, text);
+      if (page === currentPageRef.current) onVisibleTextChange(text);
+    },
+    [onVisibleTextChange],
+  );
+
+  useLayoutEffect(() => {
+    if (!documentPages || navigationRequest.page > documentPages) return;
+    const target = streamRef.current?.querySelector<HTMLElement>(
+      `[data-reader-page="${navigationRequest.page}"]`,
+    );
+    if (!target) return;
+    target.scrollIntoView({
+      behavior: navigationRequest.behavior,
+      block: "start",
+      inline: "nearest",
+    });
+    positionedRef.current = true;
+  }, [documentPages, navigationRequest]);
+
+  useEffect(() => {
+    const stream = streamRef.current;
+    const viewportNode = stream?.closest<HTMLElement>(
+      '[data-reader-viewport="true"]',
+    );
+    if (!stream || !viewportNode) return;
+    let frame: number | null = null;
+
+    const updateCurrentPage = () => {
+      frame = null;
+      if (!positionedRef.current) return;
+      const viewportRect = viewportNode.getBoundingClientRect();
+      const x = viewportRect.left + viewportRect.width / 2;
+      const centerY = viewportRect.top + viewportRect.height / 2;
+      const offsets = [0, -24, 24, -64, 64];
+      const pageNode = offsets
+        .map((offset) => document.elementFromPoint(x, centerY + offset))
+        .map((element) => element?.closest<HTMLElement>("[data-reader-page]"))
+        .find((element) => element && stream.contains(element));
+      const nextPage = Number(pageNode?.dataset.readerPage);
+      if (
+        Number.isInteger(nextPage) &&
+        nextPage >= 1 &&
+        nextPage <= documentPages &&
+        nextPage !== currentPageRef.current
+      )
+        onCurrentPageChange(nextPage);
+    };
+
+    const scheduleCurrentPageUpdate = () => {
+      if (frame === null)
+        frame = window.requestAnimationFrame(updateCurrentPage);
+    };
+
+    viewportNode.addEventListener("scroll", scheduleCurrentPageUpdate, {
+      passive: true,
+    });
+    scheduleCurrentPageUpdate();
+    return () => {
+      viewportNode.removeEventListener("scroll", scheduleCurrentPageUpdate);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
+  }, [documentPages, onCurrentPageChange]);
+
+  if (documentFailed)
+    return (
+      <div className="grid min-h-[32rem] w-full place-items-center bg-reader-paper p-8">
+        <div className="max-w-sm text-center">
+          <p className="font-display text-2xl font-semibold">
+            This document couldn’t be rendered.
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-reader-muted">
+            The PDF may be locked, damaged, or temporarily unavailable.
+          </p>
+          <Button
+            variant="outline"
+            className="mt-5"
+            onClick={() => {
+              setDocumentFailed(false);
+              setDocumentAttempt((value) => value + 1);
+            }}
+          >
+            <RefreshCw />
+            Retry document
+          </Button>
+        </div>
+      </div>
+    );
+
+  return (
+    <Document
+      key={documentAttempt}
+      file={fileUrl}
+      options={PDF_DOCUMENT_OPTIONS}
+      className="w-full"
+      loading={
+        <div className="grid min-h-[32rem] w-full place-items-center bg-reader-paper">
+          <LoaderCircle className="size-5 animate-spin text-coral" />
+        </div>
+      }
+      onLoadSuccess={(document) => {
+        setDocumentFailed(false);
+        loadedDocumentRef.current = document;
+        const initialPage = Math.min(
+          document.numPages,
+          Math.max(1, currentPageRef.current),
+        );
+        void document.getPage(initialPage).then(
+          (loadedPage) => {
+            if (loadedDocumentRef.current !== document) return;
+            const pageViewport = loadedPage.getViewport({ scale: 1 });
+            setAspectRatio(pageViewport.width / pageViewport.height);
+            setDocumentPages(document.numPages);
+            onDocumentReady(document);
+          },
+          () => {
+            if (loadedDocumentRef.current !== document) return;
+            setDocumentPages(document.numPages);
+            onDocumentReady(document);
+          },
+        );
+      }}
+      onLoadError={() => {
+        loadedDocumentRef.current = null;
+        setDocumentFailed(true);
+      }}
+      onSourceError={() => {
+        loadedDocumentRef.current = null;
+        setDocumentFailed(true);
+      }}
+    >
+      {documentPages ? (
+        <div ref={streamRef} className="flex w-full flex-col gap-6 pb-6">
+          {pages.map((page) => {
+            const shouldRender =
+              Math.abs(page - currentPage) <= PDF_PAGE_RENDER_RADIUS;
+            return (
+              <section
+                key={page}
+                data-reader-page={page}
+                data-reader-base-width={fittedWidth}
+                data-reader-base-height={fittedWidth / aspectRatio}
+                data-reader-render-width={PDF_PAGE_RENDER_WIDTH}
+                aria-label={`Page ${page}`}
+                aria-current={page === currentPage ? "page" : undefined}
+                style={{
+                  width: `var(--reader-live-page-width, ${targetWidth}px)`,
+                  height: `var(--reader-live-page-height, ${targetHeight}px)`,
+                }}
+                className="pdf-reader-shell relative mx-auto shrink-0 scroll-mt-6"
+              >
+                {shouldRender ? (
+                  <PdfPageSurface
+                    fileUrl={fileUrl}
+                    page={page}
+                    isCurrent={page === currentPage}
+                    aspectRatio={aspectRatio}
+                    viewport={viewport}
+                    zoom={zoom}
+                    voiceState={page === currentPage ? voiceState : "idle"}
+                    highlights={highlights.filter(
+                      (highlight) => highlight.page === page,
+                    )}
+                    selection={selection?.page === page ? selection : null}
+                    activeFocus={
+                      activeFocus?.page === page ? activeFocus : null
+                    }
+                    focusRequest={
+                      focusRequest?.page === page ? focusRequest : null
+                    }
+                    onVisibleTextChange={registerVisibleText}
+                    onPageCaptureReady={registerPageCapture}
+                    onPointerChange={onPointerChange}
+                    onSelectionChange={onSelectionChange}
+                    onFocusResolved={onFocusResolved}
+                  />
+                ) : (
+                  <div className="size-full bg-reader-paper shadow-float" />
+                )}
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="grid min-h-[32rem] w-full place-items-center bg-reader-paper">
+          <LoaderCircle className="size-5 animate-spin text-coral" />
+        </div>
+      )}
+    </Document>
   );
 }
