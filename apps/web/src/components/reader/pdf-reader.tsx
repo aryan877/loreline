@@ -41,6 +41,8 @@ import { PDF_DOCUMENT_OPTIONS } from "@/lib/pdfjs-client";
 const REALTIME_IMAGE_MAX_DATA_URL_LENGTH = 120_000;
 const REALTIME_IMAGE_WIDTHS = [960, 768, 640, 512, 384] as const;
 const REALTIME_IMAGE_QUALITIES = [0.62, 0.5, 0.4, 0.3] as const;
+const PDF_PAGE_RENDER_WIDTH = 2048;
+const PDF_PAGE_RENDER_PIXEL_RATIO = 2;
 
 function drawPointerMarker(
   context: CanvasRenderingContext2D,
@@ -510,10 +512,7 @@ export default function PdfReader({
   onFocusResolved,
 }: PdfReaderProps) {
   const pageRef = useRef<HTMLDivElement>(null);
-  const zoomSnapshotRef = useRef<HTMLCanvasElement>(null);
   const pointerVisualRef = useRef<HTMLSpanElement>(null);
-  const snapshotVisibleRef = useRef(false);
-  const snapshotReleaseFrameRef = useRef<number | null>(null);
   const renderedPageRef = useRef<number | null>(null);
   const livePointerRef = useRef<PointerContext>(null);
   const textLayerModelRef = useRef<TextLayerModel | null>(null);
@@ -523,8 +522,6 @@ export default function PdfReader({
   const inspectionTimeoutRef = useRef<number | null>(null);
   const reduceMotion = useReducedMotion() ?? false;
   const [attempt, setAttempt] = useState(0);
-  const [renderZoom, setRenderZoom] = useState(zoom);
-  const [snapshotVisible, setSnapshotVisible] = useState(false);
   const [liveSelection, setLiveSelection] = useState<ReaderSelection | null>(
     null,
   );
@@ -551,7 +548,7 @@ export default function PdfReader({
   const fittedWidth = Math.min(viewport.width, viewport.height * aspectRatio);
   const targetWidth = Math.max(1, Math.floor(fittedWidth * zoom));
   const targetHeight = Math.max(1, Math.floor(targetWidth / aspectRatio));
-  const renderWidth = Math.max(1, Math.floor(fittedWidth * renderZoom));
+  const renderWidth = PDF_PAGE_RENDER_WIDTH;
   const renderHeight = Math.max(1, Math.floor(renderWidth / aspectRatio));
   const renderScale = targetWidth / renderWidth;
   const auraMode: ReaderAuraMode =
@@ -561,32 +558,6 @@ export default function PdfReader({
     voiceState === "speaking"
       ? voiceState
       : "idle";
-
-  const cancelSnapshotRelease = useCallback(() => {
-    if (snapshotReleaseFrameRef.current === null) return;
-    window.cancelAnimationFrame(snapshotReleaseFrameRef.current);
-    snapshotReleaseFrameRef.current = null;
-  }, []);
-
-  const hideZoomSnapshot = useCallback(() => {
-    cancelSnapshotRelease();
-    snapshotVisibleRef.current = false;
-    setSnapshotVisible(false);
-  }, [cancelSnapshotRelease]);
-
-  const releaseZoomSnapshot = useCallback(() => {
-    if (!snapshotVisibleRef.current) return;
-    cancelSnapshotRelease();
-    snapshotReleaseFrameRef.current = window.requestAnimationFrame(() => {
-      snapshotReleaseFrameRef.current = window.requestAnimationFrame(() => {
-        snapshotReleaseFrameRef.current = null;
-        snapshotVisibleRef.current = false;
-        setSnapshotVisible(false);
-      });
-    });
-  }, [cancelSnapshotRelease]);
-
-  useEffect(() => cancelSnapshotRelease, [cancelSnapshotRelease]);
 
   const locatePassage = useCallback((passage: string) => {
     const pageNode = pageRef.current;
@@ -668,14 +639,12 @@ export default function PdfReader({
   const loadError = useCallback(() => {
     setFailedPage({ fileUrl, page });
     renderedPageRef.current = null;
-    hideZoomSnapshot();
     onVisibleTextChange("");
-  }, [fileUrl, hideZoomSnapshot, onVisibleTextChange, page]);
+  }, [fileUrl, onVisibleTextChange, page]);
 
   const handlePageRender = useCallback(() => {
     renderedPageRef.current = page;
-    releaseZoomSnapshot();
-  }, [page, releaseZoomSnapshot]);
+  }, [page]);
 
   const capturePageImage = useCallback<ReaderControls["capturePageImage"]>(
     ({ markPointer }) => {
@@ -713,33 +682,9 @@ export default function PdfReader({
       setLiveSelection(null);
       setSelectionGestureActive(false);
       setInspectionTarget(null);
-      hideZoomSnapshot();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [fileUrl, hideZoomSnapshot, page]);
-
-  useEffect(() => {
-    if (zoom === renderZoom) return;
-    const timeout = window.setTimeout(() => {
-      cancelSnapshotRelease();
-      const source = pageRef.current?.querySelector<HTMLCanvasElement>(
-        "[data-pdf-render-layer] canvas",
-      );
-      const snapshot = zoomSnapshotRef.current;
-      if (source && snapshot && !snapshotVisibleRef.current) {
-        const context = snapshot.getContext("2d", { alpha: false });
-        if (context && source.width > 0 && source.height > 0) {
-          snapshot.width = source.width;
-          snapshot.height = source.height;
-          context.drawImage(source, 0, 0);
-          snapshotVisibleRef.current = true;
-          setSnapshotVisible(true);
-        }
-      }
-      setRenderZoom(zoom);
-    }, 160);
-    return () => window.clearTimeout(timeout);
-  }, [cancelSnapshotRelease, renderZoom, zoom]);
+  }, [fileUrl, page]);
 
   const handlePageLoad = useCallback<
     NonNullable<ComponentProps<typeof Page>["onLoadSuccess"]>
@@ -923,7 +868,13 @@ export default function PdfReader({
 
   return (
     <div
-      style={{ width: targetWidth, height: targetHeight }}
+      data-reader-base-width={fittedWidth}
+      data-reader-base-height={fittedWidth / aspectRatio}
+      data-reader-render-width={renderWidth}
+      style={{
+        width: `var(--reader-live-page-width, ${targetWidth}px)`,
+        height: `var(--reader-live-page-height, ${targetHeight}px)`,
+      }}
       className="pdf-reader-shell relative mx-auto w-fit"
     >
       <ReaderStateAura mode={auraMode} />
@@ -954,7 +905,7 @@ export default function PdfReader({
           style={{
             width: renderWidth,
             height: renderHeight,
-            transform: `scale(${renderScale})`,
+            transform: `translate3d(0, 0, 0) scale(var(--reader-live-render-scale, ${renderScale}))`,
           }}
         >
           <Document
@@ -979,6 +930,7 @@ export default function PdfReader({
             <Page
               pageNumber={page}
               width={renderWidth}
+              devicePixelRatio={PDF_PAGE_RENDER_PIXEL_RATIO}
               renderAnnotationLayer={false}
               onLoadSuccess={handlePageLoad}
               onRenderError={loadError}
@@ -988,17 +940,6 @@ export default function PdfReader({
             />
           </Document>
         </div>
-        <canvas
-          ref={zoomSnapshotRef}
-          aria-hidden="true"
-          className={`pointer-events-none absolute inset-0 z-[3] size-full will-change-[opacity] ${
-            snapshotVisible
-              ? "opacity-100"
-              : reduceMotion
-                ? "opacity-0"
-                : "opacity-0 transition-opacity duration-75"
-          }`}
-        />
         <ReadingAura mode={auraMode} inspectionTarget={inspectionTarget} />
         <HighlightLayer
           highlights={highlights}

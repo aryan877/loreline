@@ -953,6 +953,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     [],
   );
   const viewportRef = useRef<HTMLDivElement>(null);
+  const zoomLabelRef = useRef<HTMLSpanElement>(null);
   const [viewportSize, setViewportSize] = useState({
     width: 760,
     height: 900,
@@ -1047,17 +1048,32 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     if (!node) return;
     let accumulatedDelta = 0;
     let zoomFrame: number | null = null;
-    let scrollFrame: number | null = null;
+    let settleTimeout: number | null = null;
+    let clearFrame: number | null = null;
     let clientX = 0;
     let clientY = 0;
+
+    const clearLiveZoom = () => {
+      node.style.removeProperty("--reader-live-page-width");
+      node.style.removeProperty("--reader-live-page-height");
+      node.style.removeProperty("--reader-live-render-scale");
+    };
 
     const applyGestureZoom = () => {
       zoomFrame = null;
       const pageNode = node.querySelector<HTMLElement>(".pdf-reader-shell");
+      if (!pageNode) return;
+      const baseWidth = Number(pageNode.dataset.readerBaseWidth);
+      const baseHeight = Number(pageNode.dataset.readerBaseHeight);
+      const renderWidth = Number(pageNode.dataset.readerRenderWidth);
+      if (!baseWidth || !baseHeight || !renderWidth) return;
+
       const current = zoomRef.current;
-      const next = commitZoom(current * Math.exp(-accumulatedDelta * 0.002));
+      const next = normalizeReaderZoom(
+        current * Math.exp(-accumulatedDelta * 0.002),
+      );
       accumulatedDelta = 0;
-      if (!pageNode || next === current) return;
+      if (next === current) return;
 
       const before = pageNode.getBoundingClientRect();
       const anchorX = Math.max(
@@ -1068,13 +1084,31 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
         0,
         Math.min(1, (clientY - before.top) / Math.max(1, before.height)),
       );
+      const nextWidth = Math.max(1, Math.floor(baseWidth * next));
+      const nextHeight = Math.max(1, Math.floor(baseHeight * next));
+      zoomRef.current = next;
+      node.style.setProperty("--reader-live-page-width", `${nextWidth}px`);
+      node.style.setProperty("--reader-live-page-height", `${nextHeight}px`);
+      node.style.setProperty(
+        "--reader-live-render-scale",
+        String(nextWidth / renderWidth),
+      );
+      if (zoomLabelRef.current)
+        zoomLabelRef.current.textContent = `${Math.round(next * 100)}%`;
 
-      scrollFrame = window.requestAnimationFrame(() => {
-        const after = pageNode.getBoundingClientRect();
-        node.scrollLeft += after.left + after.width * anchorX - clientX;
-        node.scrollTop += after.top + after.height * anchorY - clientY;
-        scrollFrame = null;
-      });
+      const after = pageNode.getBoundingClientRect();
+      node.scrollLeft += after.left + after.width * anchorX - clientX;
+      node.scrollTop += after.top + after.height * anchorY - clientY;
+
+      if (settleTimeout !== null) window.clearTimeout(settleTimeout);
+      settleTimeout = window.setTimeout(() => {
+        settleTimeout = null;
+        commitZoom(zoomRef.current);
+        clearFrame = window.requestAnimationFrame(() => {
+          clearLiveZoom();
+          clearFrame = null;
+        });
+      }, 140);
     };
 
     const onWheel = (event: WheelEvent) => {
@@ -1089,6 +1123,10 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
       accumulatedDelta += event.deltaY * deltaMultiplier;
       clientX = event.clientX;
       clientY = event.clientY;
+      if (clearFrame !== null) {
+        window.cancelAnimationFrame(clearFrame);
+        clearFrame = null;
+      }
       if (zoomFrame === null)
         zoomFrame = window.requestAnimationFrame(applyGestureZoom);
     };
@@ -1097,7 +1135,9 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     return () => {
       node.removeEventListener("wheel", onWheel);
       if (zoomFrame !== null) window.cancelAnimationFrame(zoomFrame);
-      if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame);
+      if (settleTimeout !== null) window.clearTimeout(settleTimeout);
+      if (clearFrame !== null) window.cancelAnimationFrame(clearFrame);
+      clearLiveZoom();
     };
   }, [commitZoom]);
 
@@ -1530,7 +1570,10 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
           >
             <Minus />
           </Button>
-          <span className="w-10 text-center font-mono text-[0.64rem] text-muted-foreground">
+          <span
+            ref={zoomLabelRef}
+            className="w-10 text-center font-mono text-[0.64rem] text-muted-foreground"
+          >
             {Math.round(zoom * 100)}%
           </span>
           <Button
