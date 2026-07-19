@@ -10,7 +10,6 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   Bookmark,
   BookmarkCheck,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Highlighter,
@@ -111,6 +110,17 @@ const PageNavigator = dynamic(
     ),
   },
 );
+
+const MIN_READER_ZOOM = 0.5;
+const MAX_READER_ZOOM = 4;
+const READER_ZOOM_STEP = 0.05;
+
+function normalizeReaderZoom(value: number) {
+  return Math.min(
+    MAX_READER_ZOOM,
+    Math.max(MIN_READER_ZOOM, Number(value.toFixed(3))),
+  );
+}
 
 async function getBook(bookId: string): Promise<ReaderBook> {
   const data = await apiJson<BookResponse>(`/api/books/${bookId}`);
@@ -270,106 +280,142 @@ function ConfirmationDialog({
   );
 }
 
-function SavedHighlightCard({
+function SavedHighlightRow({
   highlight,
   isCurrentPage,
-  open,
-  onToggle,
+  onSelect,
+}: {
+  highlight: Highlight;
+  isCurrentPage: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="group flex w-full items-center gap-2.5 rounded-xl border bg-card p-2.5 text-left shadow-sm outline-none transition-[background-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:bg-muted/35 hover:shadow-soft focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-reader-highlight/65 text-[0.68rem] font-semibold text-foreground">
+        {highlight.page}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 text-[0.66rem] font-semibold text-foreground">
+          {isCurrentPage ? "This page" : `Page ${highlight.page}`}
+          {highlight.note ? (
+            <span
+              className="size-1.5 rounded-full bg-sage"
+              aria-label="Has a note"
+            />
+          ) : null}
+        </span>
+        <span className="mt-0.5 line-clamp-2 block break-words text-[0.7rem] leading-snug text-muted-foreground">
+          {highlight.note || highlight.text}
+        </span>
+      </span>
+      <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
+    </button>
+  );
+}
+
+function SavedHighlightDialog({
+  highlight,
+  onClose,
   onOpen,
   onUpdate,
   onDelete,
 }: {
   highlight: Highlight;
-  isCurrentPage: boolean;
-  open: boolean;
-  onToggle: () => void;
+  onClose: () => void;
   onOpen: () => void;
   onUpdate: (note: string | null) => Promise<void>;
   onDelete: () => void;
 }) {
   const [note, setNote] = useState(highlight.note ?? "");
+  const [saving, setSaving] = useState(false);
 
   const changed = note.trim() !== (highlight.note ?? "");
-  return (
-    <article className="overflow-hidden rounded-xl border bg-card shadow-sm">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        className="flex w-full items-start gap-3 px-3 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-      >
-        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-reader-highlight/60 text-xs font-semibold text-foreground">
-          {highlight.page}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="text-[0.62rem] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
-              {isCurrentPage ? "This page" : `Page ${highlight.page}`}
-            </span>
-            {highlight.note && (
-              <span className="rounded-full bg-sage-soft px-1.5 py-0.5 text-[0.56rem] font-semibold uppercase tracking-wide text-foreground">
-                Note
-              </span>
-            )}
-          </span>
-          <span className="mt-1 line-clamp-2 block break-words text-xs leading-relaxed text-ink-soft">
-            {highlight.note || highlight.text}
-          </span>
-        </span>
-        <ChevronDown
-          className={cn(
-            "mt-1 size-4 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180",
-          )}
-        />
-      </button>
+  const save = async () => {
+    if (!changed || saving) return;
+    setSaving(true);
+    try {
+      await onUpdate(note.trim() || null);
+      onClose();
+    } catch {
+      // TanStack Query's global mutation handler owns user-facing failures.
+    } finally {
+      setSaving(false);
+    }
+  };
 
-      {open && (
-        <div className="border-t bg-paper/45">
-          <div className="space-y-3 px-3 py-3.5">
-            <blockquote className="max-h-32 overflow-y-auto border-l-2 border-reader-highlight pl-3 text-xs leading-relaxed text-ink-soft">
-              “{highlight.text}”
-            </blockquote>
-            <Textarea
-              aria-label={`Note for highlight on page ${highlight.page}`}
-              value={note}
-              onChange={(event) => setNote(event.target.value.slice(0, 4000))}
-              placeholder="Add a note to this passage…"
-              rows={4}
-              className="field-sizing-fixed h-28 min-h-0 max-h-28 w-full resize-none overflow-y-auto bg-background text-xs"
-            />
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="rounded-2xl sm:max-w-xl">
+        <DialogHeader className="pr-8">
+          <div className="flex items-center gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-reader-highlight/65 text-sm font-semibold">
+              {highlight.page}
+            </span>
+            <div>
+              <DialogTitle className="font-display text-2xl">
+                Saved passage
+              </DialogTitle>
+              <DialogDescription>Page {highlight.page}</DialogDescription>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 border-t bg-card px-2.5 py-2">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Delete highlight on page ${highlight.page}`}
-                    onClick={onDelete}
-                  />
-                }
-              >
-                <Trash2 />
-              </TooltipTrigger>
-              <TooltipContent>Remove passage</TooltipContent>
-            </Tooltip>
-            <span className="flex-1" />
-            <Button variant="outline" size="sm" onClick={onOpen}>
+        </DialogHeader>
+        <blockquote className="scrollbar-none max-h-52 overflow-y-auto rounded-xl bg-paper/65 p-4 text-sm leading-relaxed text-ink-soft ring-1 ring-inset ring-border">
+          “{highlight.text}”
+        </blockquote>
+        <div className="space-y-2">
+          <label
+            htmlFor={`highlight-note-${highlight.id}`}
+            className="text-xs font-semibold"
+          >
+            Your note
+          </label>
+          <Textarea
+            id={`highlight-note-${highlight.id}`}
+            autoFocus
+            value={note}
+            onChange={(event) => setNote(event.target.value.slice(0, 4000))}
+            placeholder="Add a note to this passage…"
+            rows={5}
+            className="field-sizing-fixed min-h-32 resize-none bg-background"
+          />
+        </div>
+        <DialogFooter className="sm:justify-between">
+          <Button
+            variant="ghost"
+            disabled={saving}
+            onClick={onDelete}
+            className="text-destructive hover:text-destructive"
+          >
+            <Trash2 />
+            Remove
+          </Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              disabled={saving}
+              onClick={() => {
+                onOpen();
+                onClose();
+              }}
+            >
               Show on page
             </Button>
-            <Button
-              size="sm"
-              disabled={!changed}
-              onClick={() => void onUpdate(note.trim() || null)}
-            >
-              Save
+            <Button disabled={!changed || saving} onClick={() => void save()}>
+              {saving ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <StickyNote />
+              )}
+              Save note
             </Button>
           </div>
-        </div>
-      )}
-    </article>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -497,6 +543,9 @@ function Sideboard({
       }),
     [highlights, page],
   );
+  const editingHighlight =
+    orderedHighlights.find((highlight) => highlight.id === openHighlightId) ??
+    null;
 
   return (
     <aside className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-l bg-card">
@@ -662,7 +711,7 @@ function Sideboard({
             id="workspace-notes-panel"
             role="tabpanel"
             aria-labelledby="workspace-notes-tab"
-            className="dot-grid min-h-full min-w-0 space-y-5 p-4"
+            className="dot-grid min-h-full min-w-0 space-y-4 p-3"
           >
             {bookmarks.length === 0 && orderedHighlights.length === 0 ? (
               <div className="flex min-h-[28rem] flex-col items-center justify-center px-7 text-center">
@@ -680,10 +729,10 @@ function Sideboard({
                 {bookmarks.length > 0 && (
                   <section>
                     <div className="mb-2 flex items-baseline justify-between gap-3">
-                      <p className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
+                      <p className="text-xs font-semibold text-foreground">
                         Saved pages
                       </p>
-                      <span className="text-[0.62rem] text-muted-foreground">
+                      <span className="rounded-full bg-control px-1.5 py-0.5 text-[0.6rem] font-medium text-muted-foreground">
                         {bookmarks.length}
                       </span>
                     </div>
@@ -723,48 +772,21 @@ function Sideboard({
                 {orderedHighlights.length > 0 && (
                   <section>
                     <div className="mb-2 flex items-baseline justify-between gap-3">
-                      <p className="font-mono text-[0.6rem] uppercase tracking-[0.15em] text-muted-foreground">
+                      <p className="text-xs font-semibold text-foreground">
                         Saved passages
                       </p>
-                      <span className="text-[0.62rem] text-muted-foreground">
+                      <span className="rounded-full bg-control px-1.5 py-0.5 text-[0.6rem] font-medium text-muted-foreground">
                         {orderedHighlights.length}
                       </span>
                     </div>
-                    <div className="space-y-2.5">
+                    <div className="space-y-1.5">
                       {orderedHighlights.map((highlight) => (
-                        <SavedHighlightCard
+                        <SavedHighlightRow
                           key={highlight.id}
                           highlight={highlight}
                           isCurrentPage={highlight.page === page}
-                          open={openHighlightId === highlight.id}
-                          onToggle={() =>
-                            onOpenHighlightEditor(
-                              openHighlightId === highlight.id
-                                ? null
-                                : highlight.id,
-                            )
-                          }
-                          onOpen={() => onOpenHighlight(highlight)}
-                          onUpdate={(note) =>
-                            onUpdateHighlight(highlight.id, note)
-                          }
-                          onDelete={() =>
-                            setDeleteRequest({
-                              title: highlight.note
-                                ? "Remove this saved note?"
-                                : "Remove this highlight?",
-                              description: highlight.note
-                                ? "The highlight and its attached note will be permanently removed."
-                                : "This saved highlight will be permanently removed.",
-                              confirmLabel: highlight.note
-                                ? "Remove note"
-                                : "Remove highlight",
-                              confirm: async () => {
-                                await onDeleteHighlight(highlight.id);
-                                if (openHighlightId === highlight.id)
-                                  onOpenHighlightEditor(null);
-                              },
-                            })
+                          onSelect={() =>
+                            onOpenHighlightEditor(highlight.id)
                           }
                         />
                       ))}
@@ -776,6 +798,31 @@ function Sideboard({
           </div>
         )}
       </ScrollArea>
+
+      {editingHighlight ? (
+        <SavedHighlightDialog
+          key={editingHighlight.id}
+          highlight={editingHighlight}
+          onClose={() => onOpenHighlightEditor(null)}
+          onOpen={() => onOpenHighlight(editingHighlight)}
+          onUpdate={(note) => onUpdateHighlight(editingHighlight.id, note)}
+          onDelete={() => {
+            onOpenHighlightEditor(null);
+            setDeleteRequest({
+              title: editingHighlight.note
+                ? "Remove this saved note?"
+                : "Remove this highlight?",
+              description: editingHighlight.note
+                ? "The highlight and its attached note will be permanently removed."
+                : "This saved highlight will be permanently removed.",
+              confirmLabel: editingHighlight.note
+                ? "Remove note"
+                : "Remove highlight",
+              confirm: () => onDeleteHighlight(editingHighlight.id),
+            });
+          }}
+        />
+      ) : null}
 
       <div className="space-y-2 border-t bg-background/75 px-3 py-2.5 backdrop-blur-xl">
         <button
@@ -875,6 +922,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   const [page, setPage] = useState(book.lastPage || 1);
   const [numPages, setNumPages] = useState(book.pageCount || 1);
   const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1);
   const [pageNavigatorOpen, setPageNavigatorOpen] = useState(true);
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
   const [sideboardOpen, setSideboardOpen] = useState(true);
@@ -915,6 +963,13 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   const [noteDraft, setNoteDraft] = useState("");
   const [readerConfirmation, setReaderConfirmation] =
     useState<ConfirmationRequest | null>(null);
+
+  const commitZoom = useCallback((value: number) => {
+    const next = normalizeReaderZoom(value);
+    zoomRef.current = next;
+    setZoom(next);
+    return next;
+  }, []);
 
   const resizeSideboard = useCallback((clientX: number) => {
     const maxWidth = Math.max(320, Math.min(720, window.innerWidth - 480));
@@ -986,6 +1041,65 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     measureViewport();
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    const node = viewportRef.current;
+    if (!node) return;
+    let accumulatedDelta = 0;
+    let zoomFrame: number | null = null;
+    let scrollFrame: number | null = null;
+    let clientX = 0;
+    let clientY = 0;
+
+    const applyGestureZoom = () => {
+      zoomFrame = null;
+      const pageNode = node.querySelector<HTMLElement>(".pdf-reader-shell");
+      const current = zoomRef.current;
+      const next = commitZoom(current * Math.exp(-accumulatedDelta * 0.002));
+      accumulatedDelta = 0;
+      if (!pageNode || next === current) return;
+
+      const before = pageNode.getBoundingClientRect();
+      const anchorX = Math.max(
+        0,
+        Math.min(1, (clientX - before.left) / Math.max(1, before.width)),
+      );
+      const anchorY = Math.max(
+        0,
+        Math.min(1, (clientY - before.top) / Math.max(1, before.height)),
+      );
+
+      scrollFrame = window.requestAnimationFrame(() => {
+        const after = pageNode.getBoundingClientRect();
+        node.scrollLeft += after.left + after.width * anchorX - clientX;
+        node.scrollTop += after.top + after.height * anchorY - clientY;
+        scrollFrame = null;
+      });
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      const deltaMultiplier =
+        event.deltaMode === 1
+          ? 16
+          : event.deltaMode === 2
+            ? node.clientHeight
+            : 1;
+      accumulatedDelta += event.deltaY * deltaMultiplier;
+      clientX = event.clientX;
+      clientY = event.clientY;
+      if (zoomFrame === null)
+        zoomFrame = window.requestAnimationFrame(applyGestureZoom);
+    };
+
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      node.removeEventListener("wheel", onWheel);
+      if (zoomFrame !== null) window.cancelAnimationFrame(zoomFrame);
+      if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame);
+    };
+  }, [commitZoom]);
 
   const progressMutation = useMutation({
     mutationFn: async (nextPage: number) => {
@@ -1411,12 +1525,8 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
             variant="ghost"
             size="icon-sm"
             aria-label="Zoom out"
-            onClick={() =>
-              setZoom((value) =>
-                Math.max(0.5, Number((value - 0.05).toFixed(2))),
-              )
-            }
-            disabled={zoom <= 0.5}
+            onClick={() => commitZoom(zoomRef.current - READER_ZOOM_STEP)}
+            disabled={zoom <= MIN_READER_ZOOM}
           >
             <Minus />
           </Button>
@@ -1427,10 +1537,8 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
             variant="ghost"
             size="icon-sm"
             aria-label="Zoom in"
-            onClick={() =>
-              setZoom((value) => Math.min(4, Number((value + 0.05).toFixed(2))))
-            }
-            disabled={zoom >= 4}
+            onClick={() => commitZoom(zoomRef.current + READER_ZOOM_STEP)}
+            disabled={zoom >= MAX_READER_ZOOM}
           >
             <Plus />
           </Button>
