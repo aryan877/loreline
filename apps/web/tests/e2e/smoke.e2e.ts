@@ -32,6 +32,13 @@ test("creates nested stacks and confirms recursive deletion", async ({
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page.getByRole("heading", { name: "Library" })).toBeVisible();
 
+  await page.getByRole("button", { name: /Stack Flow Check/ }).click();
+  await expect(page.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /Settings/i })).toHaveCount(
+    0,
+  );
+  await page.keyboard.press("Escape");
+
   await page.getByRole("button", { name: "New stack" }).click();
   await page.getByLabel("Stack name").fill("Work");
   await page.getByRole("button", { name: "Create stack" }).click();

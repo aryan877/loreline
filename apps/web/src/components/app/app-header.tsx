@@ -2,7 +2,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
-import { Library, LogOut, Settings } from "lucide-react";
+import { Library, LogOut } from "lucide-react";
 import type { CurrentUser } from "@loreline/contracts/auth";
 import { Logo } from "@/components/brand/logo";
 import {
@@ -85,13 +85,6 @@ export function AppHeader({ user }: { user: CurrentUser }) {
                 </p>
               </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem disabled>
-                <Settings />
-                Settings{" "}
-                <span className="ml-auto text-[0.65rem] text-muted-foreground">
-                  Soon
-                </span>
-              </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={signOutMutation.isPending}
                 onClick={() => signOutMutation.mutate()}
