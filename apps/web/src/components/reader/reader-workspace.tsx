@@ -362,6 +362,7 @@ type SideboardProps = {
   page: number;
   visibleText: string;
   selectedText: string;
+  focusedPassage: ReaderFocus | null;
   pointer: PointerContext;
   items: BoardItem[];
   setItems: React.Dispatch<React.SetStateAction<BoardItem[]>>;
@@ -388,6 +389,7 @@ function Sideboard({
   page,
   visibleText,
   selectedText,
+  focusedPassage,
   pointer,
   items,
   setItems,
@@ -421,6 +423,9 @@ function Sideboard({
       page,
       visibleText,
       selectedText,
+      focusedPassage: focusedPassage
+        ? { page: focusedPassage.page, text: focusedPassage.text }
+        : null,
       pointer,
       savedPassages: highlights
         .filter((highlight) => highlight.page === page)
@@ -429,7 +434,16 @@ function Sideboard({
           note: highlight.note,
         })),
     }),
-    [book.id, book.title, page, visibleText, selectedText, pointer, highlights],
+    [
+      book.id,
+      book.title,
+      page,
+      visibleText,
+      selectedText,
+      focusedPassage,
+      pointer,
+      highlights,
+    ],
   );
   const voice = useLorelineVoice(voiceContext, addBoardItem, readerControls);
   useEffect(() => {
@@ -1215,6 +1229,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
       page={page}
       visibleText={visibleText}
       selectedText={selection?.text ?? ""}
+      focusedPassage={activeFocus}
       pointer={pointer}
       items={boardItems}
       setItems={setBoardItems}

@@ -41,25 +41,10 @@ const voiceToolActivity: Record<
   string,
   { running: string; success: string; failed: string }
 > = {
-  prepare_reader_response: {
-    running: "Preparing the page…",
-    success: "Page context ready",
-    failed: "Page context could not be prepared",
-  },
-  inspect_page: {
-    running: "Sharing the page with Loreline…",
-    success: "Page shared with Loreline",
-    failed: "Page inspection failed",
-  },
   search_book: {
     running: "Searching this book…",
     success: "Book search complete",
     failed: "Book search failed",
-  },
-  focus_passage: {
-    running: "Finding that passage…",
-    success: "Passage focused on the page",
-    failed: "Passage could not be located",
   },
   turn_page: {
     running: "Turning the page…",
@@ -84,7 +69,7 @@ const voiceToolActivity: Record<
 };
 
 function voiceToolFailed(result: string) {
-  return /could not|temporarily unavailable|not ready|no note was saved|is unavailable/i.test(
+  return /could not|failed|temporarily unavailable|not ready|no note was saved|is unavailable/i.test(
     result,
   );
 }
@@ -104,12 +89,6 @@ const realtimeSpeechEventSchema = z.discriminatedUnion("type", [
 const realtimeInputTranscriptSchema = z.object({
   type: z.literal("conversation.item.input_audio_transcription.completed"),
   item_id: z.string(),
-});
-
-const realtimeOutputTranscriptDeltaSchema = z.object({
-  type: z.literal("response.output_audio_transcript.delta"),
-  response_id: z.string(),
-  delta: z.string(),
 });
 
 async function searchBookRequest(bookId: string, query: string) {
@@ -200,21 +179,22 @@ function pageInstructions(
     "You are Loreline, a calm, perceptive realtime reading companion. Help the reader understand the live book while keeping the words you discuss visibly anchored on the page.",
     "# Tools",
     "Use only the tools currently provided. The reader-facing page tools are read-only and low risk: call them proactively when their conditions are met without asking for confirmation. Never pretend a tool ran. Only say an action succeeded after its result confirms success.",
-    "## prepare_reader_response — REQUIRED FIRST ACTION",
-    "Every voice turn begins with a forced prepare_reader_response call before audio can be produced. Choose focus whenever the response will explain, quote, interpret, summarize, or narrate visible text. Choose inspect_pointer or inspect_page for a visual question or a response that is not anchored to an exact passage. Every turn must create real visible page feedback.",
-    "## focus_passage — PROACTIVE TEACHING ANCHOR",
-    "Before speaking any explanation, quotation, interpretation, or narration of visible text, first call focus_passage with the correct page and one short contiguous verbatim quote of roughly 8–30 words. Call it before the spoken explanation so the reader can see the exact words while listening. If no match is found, retry once with a shorter exact quote copied from the live visible text. If that also fails, briefly say you could not place the focus; never silently continue as if it worked.",
-    "## inspect_page — PROACTIVE VISUAL LOOK",
-    "No page image is sent automatically. Call inspect_page when the reader asks about a picture, diagram, visual layout, or refers to this, here, or under my cursor. Use pointer scope for a local reference and page scope for the overall page. Wait for the result before describing pixels. Do not call it merely because the page or pointer moved.",
+    "## prepare_reader_response — REQUIRED PRIVATE DECISION",
+    "Every completed user voice turn begins with a forced prepare_reader_response call before audio can be produced. This is an intent decision, not a requirement to manipulate the page. Choose conversation for ordinary conversation or a follow-up that does not depend on visible page content. Choose keep_focus when answering a follow-up about the already focused passage; preserve that highlight without moving, recapturing, or flashing the page. Choose focus only when teaching, quoting, interpreting, summarizing, or narrating a new visible passage. Choose inspect_pointer or inspect_page only when pixels or spatial layout are genuinely needed, such as a picture, diagram, page design, or a reference to this, here, or under the cursor. Never take a screenshot merely because a response has no exact passage.",
+    "## Page-material decisions",
+    "The preparation function is the single path for focusing text or inspecting page pixels. For focus, supply one short contiguous verbatim quote of roughly 8–30 words and wait for its result before explaining. For inspection, wait for the attached image before describing pixels. Do not retry a failed preparation with another mode and do not substitute inspection for a failed focus.",
     "## Other tools",
     "Call search_book only when the live page, selection, and an on-demand page inspection are genuinely insufficient. Use save_highlight_note for a persistent note linked to PDF text. Use place_note only for a temporary sideboard thought. Use place_visual when an image, scene, analogy, map, or diagram would materially improve understanding. Use turn_page only after an explicit spoken navigation request.",
     "# Tool Failures",
-    "If a tool fails, explain the failure briefly in reader-friendly language. Retry focus_passage once with a shorter exact quote. Do not repeat any other failed call with identical arguments, expose raw errors, or claim completion.",
+    "If a tool fails, explain the failure briefly in reader-friendly language. Do not retry it through another tool or mode, expose raw errors, or claim completion.",
     "# Conversation Flow",
     "Speak conversationally and compactly. Do not begin continuous narration or turn pages automatically. When teaching from the page, the sequence is: focus the exact passage, wait for success, then explain it aloud.",
     "# Live Context",
     `Book: “${context.title}”. Current page: ${context.page}. The live page is primary truth.`,
     context.selectedText ? `Selected text: “${context.selectedText}”` : "",
+    context.focusedPassage
+      ? `Currently focused and visibly highlighted passage on page ${context.focusedPassage.page}: “${context.focusedPassage.text}”`
+      : "No passage is currently focused by Loreline.",
     context.visibleText
       ? `Visible page text:\n${context.visibleText.slice(0, 12000)}`
       : "",
@@ -255,10 +235,6 @@ export function useLorelineVoice(
   const activityTimeoutRef = useRef<number | null>(null);
   const toolStartedAtRef = useRef(new Map<string, number>());
   const processedAudioItemsRef = useRef(new Set<string>());
-  const spokenTranscriptsRef = useRef(new Map<string, string>());
-  const spokenFocusAttemptRef = useRef(new Map<string, number>());
-  const spokenFocusInFlightRef = useRef(new Set<string>());
-  const turnFocusedRef = useRef(false);
   const updateState = useCallback((next: VoiceState) => {
     stateRef.current = next;
     setState(next);
@@ -300,13 +276,13 @@ export function useLorelineVoice(
         const current = contextRef.current;
         const session = sessionRef.current;
         if (!session || session.transport.status !== "connected")
-          return `Current page: ${current.page}. A visual snapshot is unavailable because voice is not connected.`;
+          return `Page inspection failed on page ${current.page} because voice is not connected.`;
 
         const capture = controlsRef.current.capturePageImage({
           markPointer: true,
         });
         if (!capture)
-          return `Current page: ${current.page}. The rendered page image is not ready, so answer from the extracted text or ask the reader to try again.`;
+          return `Page inspection failed on page ${current.page} because the rendered page image is not ready.`;
 
         const pointerSummary = capture.pointer
           ? `${Math.round(capture.pointer.x * 100)}% from the left and ${Math.round(capture.pointer.y * 100)}% from the top${capture.pointer.text ? `, over “${capture.pointer.text}”` : ""}`
@@ -322,7 +298,7 @@ export function useLorelineVoice(
             "Loreline could not attach the requested page image",
             cause,
           );
-          return `Current page: ${capture.page}. The pointer is ${pointerSummary}. The visual snapshot could not be attached, so answer from extracted text or ask the reader to try again.`;
+          return `Page inspection failed on page ${capture.page} because the visual snapshot could not be attached.`;
         }
       } finally {
         if (sessionRef.current?.transport.status === "connected")
@@ -333,48 +309,42 @@ export function useLorelineVoice(
     const prepareReaderResponse = tool({
       name: "prepare_reader_response",
       description:
-        "Mandatory first action for every voice turn. Use focus before teaching from visible text, inspect_pointer for this/here/cursor references, and inspect_page for pictures, page layout, or a response without an exact passage. A real visible page action is required before speech.",
+        "Mandatory private intent decision before each voice response. It may deliberately take no page action. Use conversation for a normal conversational response, keep_focus for a follow-up about the passage already highlighted, focus for a new passage, and inspection only for a genuinely visual question.",
       parameters: z.object({
-        mode: z.enum(["focus", "inspect_pointer", "inspect_page"]),
+        mode: z.enum([
+          "conversation",
+          "keep_focus",
+          "focus",
+          "inspect_pointer",
+          "inspect_page",
+        ]),
         page: z.number().int().positive(),
         text: z.string().trim().max(2000).optional(),
       }),
       execute: async ({ mode, page, text }) => {
+        const current = contextRef.current;
+        if (mode === "conversation")
+          return "No page action is needed. Respond conversationally without changing the reader's focus or inspecting the page.";
+        if (mode === "keep_focus") {
+          const focused = current.focusedPassage;
+          return focused
+            ? `Keep the existing visible highlight on page ${focused.page} while answering the follow-up about “${focused.text}”. Do not inspect or refocus the page.`
+            : "Preparation failed because there is no existing focused passage to keep.";
+        }
         if (mode === "inspect_pointer") return inspectRenderedPage("pointer");
         if (mode === "inspect_page") return inspectRenderedPage("page");
 
-        const current = contextRef.current;
-        const passage =
-          text?.trim() || current.selectedText || current.pointer?.text || "";
-        if (!passage) {
-          const inspection = await inspectRenderedPage(
-            current.pointer ? "pointer" : "page",
-          );
-          return `The page focus could not be prepared because no exact passage was provided for page ${page}. A visual inspection was attached instead: ${inspection}`;
-        }
+        const passage = text?.trim() ?? "";
+        if (!passage)
+          return `Passage focus failed on page ${page} because no exact quote was provided.`;
         const located = await controlsRef.current.focusPassage({
           page,
           text: passage,
         });
-        if (located) {
-          turnFocusedRef.current = true;
+        if (located)
           return `Focused the teaching passage on page ${page}. The spoken explanation may now begin.`;
-        }
-        const inspection = await inspectRenderedPage(
-          current.pointer ? "pointer" : "page",
-        );
-        return `The exact teaching passage could not be located on page ${page}. A visual inspection was attached as fallback: ${inspection} Retry focus_passage once with a shorter verbatim quote before teaching.`;
+        return `Passage focus failed because the exact quote could not be located on page ${page}.`;
       },
-    });
-
-    const inspectPage = tool({
-      name: "inspect_page",
-      description:
-        "Visually inspect the rendered PDF page. Every scope attaches the entire page and visibly marks the live cursor when it is on the PDF. Use pointer scope for phrases like this, here, or under my cursor so the answer is anchored to the marked position and extracted text under it. Use page scope for diagrams, pictures, page design, or overall layout. Never call this tool just because the pointer or page changed.",
-      parameters: z.object({
-        scope: z.enum(["pointer", "page"]),
-      }),
-      execute: async ({ scope }) => inspectRenderedPage(scope),
     });
 
     const searchBook = tool({
@@ -461,23 +431,6 @@ export function useLorelineVoice(
       },
     });
 
-    const focusPassage = tool({
-      name: "focus_passage",
-      description:
-        "Focus and visibly highlight exact words on a PDF page before narrating, quoting, or explaining them. Pass a short contiguous verbatim quote from the visible page, ideally 8–30 words. If it is not found, retry once with a shorter exact quote.",
-      parameters: z.object({
-        page: z.number().int().positive(),
-        text: z.string().trim().min(2).max(2000),
-      }),
-      execute: async ({ page, text }) => {
-        const located = await controlsRef.current.focusPassage({ page, text });
-        if (located) turnFocusedRef.current = true;
-        return located
-          ? `Focused the requested passage on page ${page}.`
-          : `The exact passage could not be located on page ${page}.`;
-      },
-    });
-
     const turnPage = tool({
       name: "turn_page",
       description:
@@ -526,9 +479,7 @@ export function useLorelineVoice(
       instructions: pageInstructions(contextRef.current, memoryRef.current),
       tools: [
         prepareReaderResponse,
-        inspectPage,
         searchBook,
-        focusPassage,
         turnPage,
         saveHighlightNote,
         placeNote,
@@ -606,47 +557,6 @@ export function useLorelineVoice(
           },
         });
         const activeSession = session;
-        const alignSpokenPassage = (responseId: string, delta: string) => {
-          const transcript = `${spokenTranscriptsRef.current.get(responseId) ?? ""}${delta}`;
-          spokenTranscriptsRef.current.set(responseId, transcript);
-          if (turnFocusedRef.current) return;
-          const words = transcript.trim().split(/\s+/).filter(Boolean).length;
-          const lastAttempt = spokenFocusAttemptRef.current.get(responseId) ?? 0;
-          if (
-            words < 6 ||
-            transcript.length - lastAttempt < 48 ||
-            spokenFocusInFlightRef.current.has(responseId)
-          )
-            return;
-
-          spokenFocusAttemptRef.current.set(responseId, transcript.length);
-          spokenFocusInFlightRef.current.add(responseId);
-          const targetPage = contextRef.current.page;
-          void controlsRef.current
-            .focusPassage({ page: targetPage, text: transcript })
-            .then((located) => {
-              if (!located) return;
-              turnFocusedRef.current = true;
-              publishActivity(
-                {
-                  id: `spoken-focus:${responseId}`,
-                  action: "focus_passage",
-                  label: "Following the spoken passage",
-                  status: "success",
-                },
-                3_200,
-              );
-            })
-            .catch((cause) => {
-              console.error(
-                "Loreline could not align its spoken passage to the page",
-                cause,
-              );
-            })
-            .finally(() => {
-              spokenFocusInFlightRef.current.delete(responseId);
-            });
-        };
         activeSession.on("agent_start", () => updateState("thinking"));
         activeSession.on(
           "agent_tool_start",
@@ -662,13 +572,17 @@ export function useLorelineVoice(
               failed: "Action failed",
             };
             toolStartedAtRef.current.set(callId, performance.now());
+            if (action === "prepare_reader_response") {
+              updateState("thinking");
+              return;
+            }
             publishActivity({
               id: callId,
               action,
               label: copy.running,
               status: "running",
             });
-            updateState(action === "inspect_page" ? "inspecting" : "thinking");
+            updateState("thinking");
           },
         );
         activeSession.on(
@@ -694,6 +608,10 @@ export function useLorelineVoice(
               });
               toolStartedAtRef.current.delete(callId);
             }
+            if (action === "prepare_reader_response") {
+              if (stateRef.current !== "speaking") updateState("thinking");
+              return;
+            }
             publishActivity(
               {
                 id: callId,
@@ -715,14 +633,6 @@ export function useLorelineVoice(
         activeSession.on("transport_event", (event) => {
           const speechEvent = realtimeSpeechEventSchema.safeParse(event);
           if (speechEvent.success) {
-            if (
-              speechEvent.data.type === "input_audio_buffer.speech_started"
-            ) {
-              turnFocusedRef.current = false;
-              spokenTranscriptsRef.current.clear();
-              spokenFocusAttemptRef.current.clear();
-              spokenFocusInFlightRef.current.clear();
-            }
             updateState(
               speechEvent.data.type === "input_audio_buffer.speech_started"
                 ? "listening"
@@ -742,13 +652,6 @@ export function useLorelineVoice(
               },
             });
           }
-          const outputTranscript =
-            realtimeOutputTranscriptDeltaSchema.safeParse(event);
-          if (outputTranscript.success)
-            alignSpokenPassage(
-              outputTranscript.data.response_id,
-              outputTranscript.data.delta,
-            );
           const parsed = realtimeUsageEventSchema.safeParse(event);
           const inputTokens = parsed.success
             ? (parsed.data.response.usage?.input_tokens ?? 0)
@@ -812,10 +715,6 @@ export function useLorelineVoice(
     publishActivity(null);
     toolStartedAtRef.current.clear();
     processedAudioItemsRef.current.clear();
-    spokenTranscriptsRef.current.clear();
-    spokenFocusAttemptRef.current.clear();
-    spokenFocusInFlightRef.current.clear();
-    turnFocusedRef.current = false;
     updateState("idle");
   }, [publishActivity, updateState]);
 
@@ -835,6 +734,7 @@ export function useLorelineVoice(
     context.page,
     context.visibleText,
     context.selectedText,
+    context.focusedPassage,
     context.savedPassages,
     buildAgent,
   ]);

@@ -24,6 +24,10 @@ export type ReadingContext = {
   page: number;
   visibleText: string;
   selectedText: string;
+  focusedPassage: {
+    page: number;
+    text: string;
+  } | null;
   pointer: PointerContext;
   savedPassages: Array<{
     text: string;
