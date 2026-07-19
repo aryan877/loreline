@@ -185,7 +185,7 @@ Copy `.env.example` to `.env`. Never put real secrets in committed files.
 | `OPENAI_REALTIME_MODEL` | No | Defaults to `gpt-realtime-2.1-mini` |
 | `OPENROUTER_API_KEY` | For RAG/visuals/memory | Embeddings, low-quality illustrations, and compaction |
 | `OPENROUTER_EMBEDDING_MODEL` | No | Defaults to `openai/text-embedding-3-small` |
-| `OPENROUTER_IMAGE_MODEL` | No | Defaults to `openai/gpt-image-1-mini`; requests use `quality: low` |
+| `OPENROUTER_IMAGE_MODEL` | No | Defaults to `openai/gpt-image-2`; requests use `quality: low` |
 | `OPENROUTER_COMPACTION_MODEL` | No | Defaults to `deepseek/deepseek-v4-flash` |
 
 For local Google OAuth, configure this exact authorized redirect URI in Google Cloud:

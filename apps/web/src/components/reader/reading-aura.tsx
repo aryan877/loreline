@@ -14,6 +14,40 @@ export type ReaderInspectionTarget = {
   label: "Looking here" | "Reading this page";
 };
 
+const auraEdges = ["top", "right", "bottom", "left"] as const;
+
+export function ReaderStateAura({ mode }: { mode: ReaderAuraMode }) {
+  const reduceMotion = useReducedMotion() ?? false;
+
+  return (
+    <AnimatePresence>
+      {mode !== "idle" && (
+        <motion.div
+          key="reader-state-aura"
+          aria-hidden="true"
+          data-reading-aura={mode}
+          className="pdf-reading-state-aura"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: reduceMotion ? 0 : 0.28, ease: "easeOut" }}
+        >
+          {auraEdges.flatMap((edge) =>
+            (["ambient", "core"] as const).map((layer) => (
+              <span
+                key={`${edge}-${layer}`}
+                data-aura-edge={edge}
+                data-aura-layer={layer}
+                className="pdf-reading-state-aura__edge"
+              />
+            )),
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export function ReadingAura({
   mode,
   inspectionTarget,
@@ -32,8 +66,7 @@ export function ReadingAura({
           label: "Reading this page" as const,
         }
       : null);
-  const stateGlowVisible = mode !== "idle";
-  const visible = stateGlowVisible || target !== null;
+  const visible = target !== null;
 
   return (
     <AnimatePresence>
@@ -48,18 +81,6 @@ export function ReadingAura({
           exit={{ opacity: 0 }}
           transition={{ duration: reduceMotion ? 0 : 0.2, ease: "easeOut" }}
         >
-          <AnimatePresence>
-            {stateGlowVisible && (
-              <motion.span
-                key={`state-glow-${mode}`}
-                className="pdf-reading-aura__state-glow"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: reduceMotion ? 0 : 0.25 }}
-              />
-            )}
-          </AnimatePresence>
           <AnimatePresence>
             {target && (
               <motion.span

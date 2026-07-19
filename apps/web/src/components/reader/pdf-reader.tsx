@@ -26,6 +26,7 @@ import type {
 } from "@loreline/contracts/reader";
 import { Button } from "@/components/ui/button";
 import {
+  ReaderStateAura,
   ReadingAura,
   type ReaderAuraMode,
   type ReaderInspectionTarget,
@@ -482,7 +483,7 @@ function HighlightLayer({
         <span
           key={`${activeFocus.id}-${index}`}
           data-reader-focus={index === 0 ? "true" : undefined}
-          className="pdf-reader-focus absolute rounded-[0.16rem] mix-blend-multiply"
+          className="pdf-reader-focus absolute rounded-[0.16rem]"
           style={{
             left: `${rect.x * 100}%`,
             top: `${rect.y * 100}%`,
@@ -912,85 +913,90 @@ export default function PdfReader({
 
   return (
     <div
-      ref={pageRef}
       style={{ width: targetWidth, height: targetHeight }}
-      className="pdf-reader-surface relative mx-auto w-fit cursor-none select-text overflow-hidden bg-card shadow-float"
-      onMouseMove={(event) =>
-        updatePointerAtPoint(event.clientX, event.clientY)
-      }
-      onMouseDown={(event) => {
-        if (event.button !== 0) return;
-        nativeSelectionActiveRef.current = true;
-        setLiveSelection(null);
-        setSelectionGestureActive(true);
-        onSelectionChange(null);
-      }}
-      onMouseLeave={() => {
-        if (pointerVisualRef.current)
-          pointerVisualRef.current.style.opacity = "0";
-        livePointerRef.current = null;
-        hoveredSentenceKeyRef.current = null;
-        onPointerChange(null);
-      }}
+      className="pdf-reader-shell relative mx-auto w-fit"
     >
+      <ReaderStateAura mode={auraMode} />
       <div
-        data-pdf-render-layer="true"
-        className="absolute left-0 top-0 origin-top-left"
-        style={{
-          width: renderWidth,
-          height: renderHeight,
-          transform: `scale(${renderScale})`,
+        ref={pageRef}
+        className="pdf-reader-surface relative z-10 size-full cursor-none select-text overflow-hidden bg-card shadow-float"
+        onMouseMove={(event) =>
+          updatePointerAtPoint(event.clientX, event.clientY)
+        }
+        onMouseDown={(event) => {
+          if (event.button !== 0) return;
+          nativeSelectionActiveRef.current = true;
+          setLiveSelection(null);
+          setSelectionGestureActive(true);
+          onSelectionChange(null);
+        }}
+        onMouseLeave={() => {
+          if (pointerVisualRef.current)
+            pointerVisualRef.current.style.opacity = "0";
+          livePointerRef.current = null;
+          hoveredSentenceKeyRef.current = null;
+          onPointerChange(null);
         }}
       >
-        <Document
-          key={attempt}
-          file={fileUrl}
-          options={pdfOptions}
-          loading={
-            <div
-              style={{ width: renderWidth, height: renderHeight }}
-              className="grid place-items-center bg-reader-paper"
-            >
-              <LoaderCircle className="size-5 animate-spin text-coral" />
-            </div>
-          }
-          onLoadSuccess={({ numPages }) => {
-            setFailedPage(null);
-            onDocumentReady(numPages);
+        <div
+          data-pdf-render-layer="true"
+          className="absolute left-0 top-0 origin-top-left"
+          style={{
+            width: renderWidth,
+            height: renderHeight,
+            transform: `scale(${renderScale})`,
           }}
-          onLoadError={loadError}
-          onSourceError={loadError}
         >
-          <Page
-            pageNumber={page}
-            width={renderWidth}
-            renderAnnotationLayer={false}
-            onLoadSuccess={handlePageLoad}
-            onRenderError={loadError}
-            onRenderSuccess={handlePageRender}
-            onGetTextSuccess={handleTextSuccess}
-            onRenderTextLayerSuccess={handleTextLayerRender}
-          />
-        </Document>
+          <Document
+            key={attempt}
+            file={fileUrl}
+            options={pdfOptions}
+            loading={
+              <div
+                style={{ width: renderWidth, height: renderHeight }}
+                className="grid place-items-center bg-reader-paper"
+              >
+                <LoaderCircle className="size-5 animate-spin text-coral" />
+              </div>
+            }
+            onLoadSuccess={({ numPages }) => {
+              setFailedPage(null);
+              onDocumentReady(numPages);
+            }}
+            onLoadError={loadError}
+            onSourceError={loadError}
+          >
+            <Page
+              pageNumber={page}
+              width={renderWidth}
+              renderAnnotationLayer={false}
+              onLoadSuccess={handlePageLoad}
+              onRenderError={loadError}
+              onRenderSuccess={handlePageRender}
+              onGetTextSuccess={handleTextSuccess}
+              onRenderTextLayerSuccess={handleTextLayerRender}
+            />
+          </Document>
+        </div>
+        <canvas
+          ref={zoomSnapshotRef}
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 z-[3] size-full transition-opacity duration-100 ${snapshotVisible ? "opacity-100" : "opacity-0"}`}
+        />
+        <ReadingAura mode={auraMode} inspectionTarget={inspectionTarget} />
+        <HighlightLayer
+          highlights={highlights}
+          selection={selectionGestureActive ? liveSelection : selection}
+          activeFocus={activeFocus}
+        />
+        <span
+          ref={pointerVisualRef}
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 z-20 opacity-0 transition-opacity duration-100"
+        >
+          <MousePointer2 className="size-5 fill-gold text-foreground drop-shadow-md" />
+        </span>
       </div>
-      <canvas
-        ref={zoomSnapshotRef}
-        aria-hidden="true"
-        className={`pointer-events-none absolute inset-0 z-[3] size-full transition-opacity duration-100 ${snapshotVisible ? "opacity-100" : "opacity-0"}`}
-      />
-      <ReadingAura mode={auraMode} inspectionTarget={inspectionTarget} />
-      <HighlightLayer
-        highlights={highlights}
-        selection={selectionGestureActive ? liveSelection : selection}
-        activeFocus={activeFocus}
-      />
-      <span
-        ref={pointerVisualRef}
-        aria-hidden="true"
-        className="pointer-events-none absolute left-0 top-0 z-20 opacity-0 transition-opacity duration-100"
-      >
-        <MousePointer2 className="size-5 fill-gold text-foreground drop-shadow-md" />
-      </span>
     </div>
   );
 }

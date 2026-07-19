@@ -7,7 +7,7 @@ import {
 } from "@/modules/ai/providers/openrouter";
 
 describe("OpenRouter media contracts", () => {
-  it("keeps illustration generation on the low-cost image setting", async () => {
+  it("generates GPT Image 2 illustrations at low quality", async () => {
     const request = vi.fn().mockResolvedValue(
       Response.json({
         data: [{ b64_json: "encoded-image" }],
@@ -17,7 +17,7 @@ describe("OpenRouter media contracts", () => {
 
     const image = await generateOpenRouterImage("visualize this passage", {
       apiKey: "test-key",
-      model: "openai/gpt-image-1-mini",
+      model: "openai/gpt-image-2",
       fetch: request,
     });
 
@@ -26,7 +26,7 @@ describe("OpenRouter media contracts", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
-          model: "openai/gpt-image-1-mini",
+          model: "openai/gpt-image-2",
           prompt: "visualize this passage",
           quality: "low",
           n: 1,

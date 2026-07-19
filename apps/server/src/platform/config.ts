@@ -37,7 +37,7 @@ export const AppConfigLive = Layer.effect(
         Config.withDefault("gpt-realtime-2.1"),
       ),
       openRouterImageModel: yield* Config.string("OPENROUTER_IMAGE_MODEL").pipe(
-        Config.withDefault("openai/gpt-image-1-mini"),
+        Config.withDefault("openai/gpt-image-2"),
       ),
       openRouterEmbeddingModel: yield* Config.string(
         "OPENROUTER_EMBEDDING_MODEL",
