@@ -6,11 +6,11 @@ import {
   type ComponentProps,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
-import { Document, Page, pdfjs } from "react-pdf";
+import { Document, Page } from "react-pdf";
+import type { PDFDocumentProxy } from "pdfjs-dist";
 import "react-pdf/dist/Page/TextLayer.css";
 import type { Highlight } from "@loreline/contracts/highlights";
 import type {
@@ -36,11 +36,7 @@ import {
   normalizePdfText,
   sentenceTextRanges,
 } from "@/lib/pdf-text";
-
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
+import { PDF_DOCUMENT_OPTIONS } from "@/lib/pdfjs-client";
 
 const REALTIME_IMAGE_MAX_DATA_URL_LENGTH = 120_000;
 const REALTIME_IMAGE_WIDTHS = [960, 768, 640, 512, 384] as const;
@@ -130,7 +126,7 @@ type PdfReaderProps = {
   selection: ReaderSelection | null;
   activeFocus: ReaderFocus | null;
   focusRequest: ReaderFocusRequest | null;
-  onDocumentReady: (pages: number) => void;
+  onDocumentReady: (document: PDFDocumentProxy) => void;
   onVisibleTextChange: (text: string) => void;
   onPageCaptureReady: (
     capture: ReaderControls["capturePageImage"] | null,
@@ -545,15 +541,6 @@ export default function PdfReader({
     width: number;
     height: number;
   } | null>(null);
-  const pdfOptions = useMemo(
-    () => ({
-      cMapUrl: "/pdfjs/cmaps/",
-      cMapPacked: true,
-      standardFontDataUrl: "/pdfjs/standard_fonts/",
-      wasmUrl: "/pdfjs/wasm/",
-    }),
-    [],
-  );
   const hasError = failedPage?.fileUrl === fileUrl && failedPage.page === page;
   const currentPageSize =
     pageSize?.fileUrl === fileUrl && pageSize.page === page ? pageSize : null;
@@ -950,7 +937,7 @@ export default function PdfReader({
           <Document
             key={attempt}
             file={fileUrl}
-            options={pdfOptions}
+            options={PDF_DOCUMENT_OPTIONS}
             loading={
               <div
                 style={{ width: renderWidth, height: renderHeight }}
@@ -959,9 +946,9 @@ export default function PdfReader({
                 <LoaderCircle className="size-5 animate-spin text-coral" />
               </div>
             }
-            onLoadSuccess={({ numPages }) => {
+            onLoadSuccess={(document) => {
               setFailedPage(null);
-              onDocumentReady(numPages);
+              onDocumentReady(document);
             }}
             onLoadError={loadError}
             onSourceError={loadError}

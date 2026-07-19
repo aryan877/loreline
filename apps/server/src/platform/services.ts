@@ -11,6 +11,7 @@ import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
 import OpenAI from "openai";
 import { db } from "@loreline/database/client";
 import { AppConfigLive, AppConfigTag } from "@/platform/config";
+import { retryTransientStorage } from "@/platform/storage-retry";
 
 export class ServiceError extends Data.TaggedError("ServiceError")<{
   readonly operation: string;
@@ -64,16 +65,16 @@ export const StorageLive = Layer.effect(
       put: (key: string, body: Uint8Array, contentType: string) =>
         Effect.tryPromise({
           try: () =>
-            client
-              .send(
+            retryTransientStorage(() =>
+              client.send(
                 new PutObjectCommand({
                   Bucket: config.r2BucketName,
                   Key: key,
                   Body: body,
                   ContentType: contentType,
                 }),
-              )
-              .then(() => undefined),
+              ),
+            ).then(() => undefined),
           catch: (cause) => new ServiceError({ operation: "r2.put", cause }),
         }),
       get: (key: string) =>

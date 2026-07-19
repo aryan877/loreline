@@ -17,6 +17,8 @@ import {
   LoaderCircle,
   Mic2,
   Minus,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Plus,
@@ -71,6 +73,7 @@ import type {
   BookmarksResponse,
 } from "@loreline/contracts/bookmarks";
 import type { PointerContext } from "@loreline/contracts/domain/reader";
+import type { PDFDocumentProxy } from "pdfjs-dist";
 import type {
   Highlight,
   HighlightResponse,
@@ -84,6 +87,7 @@ import type {
   ReaderSelection,
   VoiceState,
 } from "@loreline/contracts/reader";
+import { PageNavigator } from "@/components/reader/page-navigator";
 
 const PdfReader = dynamic(() => import("@/components/reader/pdf-reader"), {
   ssr: false,
@@ -857,6 +861,8 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
   const [page, setPage] = useState(book.lastPage || 1);
   const [numPages, setNumPages] = useState(book.pageCount || 1);
   const [zoom, setZoom] = useState(1);
+  const [pageNavigatorOpen, setPageNavigatorOpen] = useState(true);
+  const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
   const [sideboardOpen, setSideboardOpen] = useState(true);
   const [sideboardWidth, setSideboardWidth] = useState(368);
   const [resizingSideboard, setResizingSideboard] = useState(false);
@@ -1284,6 +1290,29 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
     <div className="flex h-dvh flex-col overflow-hidden bg-paper-deep/55">
       <header className="z-30 flex h-14 shrink-0 items-center justify-between border-b bg-background/94 px-3 backdrop-blur-xl sm:px-4">
         <div className="flex min-w-0 items-center gap-3">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant={pageNavigatorOpen ? "secondary" : "ghost"}
+                  size="icon-sm"
+                  aria-label={
+                    pageNavigatorOpen
+                      ? "Close page navigator"
+                      : "Open page navigator"
+                  }
+                  onClick={() =>
+                    setPageNavigatorOpen((current) => !current)
+                  }
+                />
+              }
+            >
+              {pageNavigatorOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+            </TooltipTrigger>
+            <TooltipContent>
+              {pageNavigatorOpen ? "Close page navigator" : "Open pages"}
+            </TooltipContent>
+          </Tooltip>
           <Logo compact />
           <span className="h-5 w-px bg-border" />
           <Link href="/library" className="min-w-0">
@@ -1415,15 +1444,27 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
         </div>
       </header>
 
-      <div
-        className={cn(
-          "grid min-h-0 flex-1",
-          sideboardOpen
-            ? "xl:grid-cols-[minmax(0,1fr)_var(--workspace-width)]"
-            : "grid-cols-1",
-        )}
-        style={{ "--workspace-width": `${sideboardWidth}px` } as CSSProperties}
-      >
+      <div className="relative flex min-h-0 flex-1">
+        {pageNavigatorOpen ? (
+          <PageNavigator
+            document={pdfDocument}
+            page={page}
+            totalPages={numPages}
+            onSelect={go}
+            onClose={() => setPageNavigatorOpen(false)}
+          />
+        ) : null}
+        <div
+          className={cn(
+            "grid min-h-0 min-w-0 flex-1",
+            sideboardOpen
+              ? "xl:grid-cols-[minmax(0,1fr)_var(--workspace-width)]"
+              : "grid-cols-1",
+          )}
+          style={
+            { "--workspace-width": `${sideboardWidth}px` } as CSSProperties
+          }
+        >
         <div className="relative min-h-0 overflow-hidden">
           <div
             ref={viewportRef}
@@ -1440,9 +1481,10 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
               selection={selection}
               activeFocus={activeFocus}
               focusRequest={focusRequest}
-              onDocumentReady={(pages) => {
-                setNumPages(pages);
-                if (page > pages) setPage(pages);
+              onDocumentReady={(document) => {
+                setPdfDocument(document);
+                setNumPages(document.numPages);
+                if (page > document.numPages) setPage(document.numPages);
               }}
               onVisibleTextChange={setVisibleText}
               onPageCaptureReady={setPageCapture}
@@ -1534,6 +1576,7 @@ function ReaderReady({ bookId, book }: { bookId: string; book: ReaderBook }) {
             </div>
           </>
         )}
+        </div>
       </div>
       <Dialog
         open={Boolean(noteSelection)}

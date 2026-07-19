@@ -43,6 +43,7 @@ import {
   UploadCloud,
 } from "lucide-react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   type ChangeEvent,
@@ -88,6 +89,11 @@ import {
   type UploadBookResponse,
 } from "@loreline/contracts/books";
 import type { Folder, FolderTreeNode } from "@loreline/contracts/folders";
+
+const BookThumbnail = dynamic(
+  () => import("@/components/library/book-thumbnail"),
+  { ssr: false },
+);
 
 type UploadStage = "idle" | "creating" | "uploading" | "extracting";
 
@@ -332,25 +338,27 @@ function FolderDestinationPicker({
   );
 }
 
-function BookCover({ title, index }: { title: string; index: number }) {
+function BookCover({ book, index }: { book: BookListItem; index: number }) {
   const tones = ["bg-coral-soft", "bg-sage-soft", "bg-sky-soft", "bg-accent"];
   return (
     <div
-      className={`relative aspect-[3/4.15] overflow-hidden rounded-2xl ${tones[index % tones.length]} p-5 transition-transform duration-300 group-hover:-translate-y-1`}
+      className={`relative aspect-[3/4.15] overflow-hidden rounded-2xl border ${tones[index % tones.length]} shadow-soft transition-transform duration-300 group-hover:-translate-y-1`}
     >
-      <div className="absolute inset-y-0 left-2 w-px bg-foreground/10" />
-      <div className="flex h-full flex-col justify-between">
-        <span className="font-mono text-[0.58rem] uppercase tracking-[0.18em] text-foreground/55">
-          Loreline edition
-        </span>
-        <p className="text-balance text-2xl font-semibold leading-[1.05] tracking-[-0.04em]">
-          {title}
-        </p>
-        <div className="flex items-end justify-between">
-          <span className="h-px w-12 bg-foreground/35" />
+      {book.status === "ready" ? (
+        <BookThumbnail bookId={book.id} title={book.title} />
+      ) : (
+        <div className="flex h-full flex-col justify-between p-5">
+          <span className="font-mono text-[0.58rem] uppercase tracking-[0.18em] text-foreground/55">
+            Preparing PDF
+          </span>
+          <p className="text-balance text-2xl font-semibold leading-[1.05] tracking-[-0.04em]">
+            {book.title}
+          </p>
           <BookOpen className="size-4 text-foreground/55" />
         </div>
-      </div>
+      )}
+      <div className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-inset ring-foreground/8" />
+      <div className="pointer-events-none absolute inset-y-0 left-2 w-px bg-foreground/10" />
     </div>
   );
 }
@@ -395,7 +403,7 @@ function IndexingState({ book }: { book: BookListItem }) {
         <span className="grid size-5 place-items-center rounded-full bg-brand-soft">
           <Check className="size-3" />
         </span>
-        Grounded search ready
+        Embeddings indexed
       </div>
     );
   }
@@ -1681,10 +1689,10 @@ export function LibraryView() {
                             href={`/library/${book.id}`}
                             aria-label={`Read ${book.title}`}
                           >
-                            <BookCover title={book.title} index={index} />
+                            <BookCover book={book} index={index} />
                           </Link>
                         ) : (
-                          <BookCover title={book.title} index={index} />
+                          <BookCover book={book} index={index} />
                         )}
                         <div className="mt-4">
                           {canRead ? (
